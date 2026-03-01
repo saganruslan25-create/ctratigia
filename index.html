@@ -346,6 +346,7 @@ input,select,textarea{user-select:text!important;-webkit-user-select:text!import
       <div class="lcd-label">КОД ЛОБІ</div>
       <div class="lcd-code" id="lcCode">----</div>
       <div class="lcd-sub">Поділіться кодом з другом</div>
+      <button onclick="copyLobbyCode()" style="margin-top:10px;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);color:var(--green2);padding:6px 20px;border-radius:6px;font-family:'Oswald',sans-serif;font-size:12px;font-weight:700;letter-spacing:2px;cursor:pointer;width:100%;transition:.2s;" onmouseover="this.style.background='rgba(34,197,94,.3)'" onmouseout="this.style.background='rgba(34,197,94,.15)'">📋 СКОПІЮВАТИ КОД</button>
     </div>
     <div class="lobby-players">
       <div class="lp-slot p1 filled">
@@ -916,12 +917,45 @@ function genCode(){
   return Array.from({length:5},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*32)]).join('');
 }
 
+window.copyLobbyCode=()=>{
+  const code=document.getElementById('lcCode').textContent;
+  const fb=()=>{const ta=document.createElement('textarea');ta.value=code;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);};
+  if(navigator.clipboard){navigator.clipboard.writeText(code).then(()=>toast('\u2705 Код скопійовано: '+code)).catch(()=>{fb();toast('\u2705 Скопійовано!');});}
+  else{fb();toast('\u2705 Скопійовано!');}
+};
+
+function setLobbyMapHostOnly(isHost){
+  const upload=document.getElementById('mapUploadArea');
+  const fileInp=document.getElementById('mapFileInput');
+  const gmaps=document.getElementById('lobbyGlobalMaps');
+  // Hide/show upload for non-host
+  [upload,fileInp].forEach(el=>{if(el)el.style.display=isHost?'':'none';});
+  // Global maps - guests can see but not change (onclick removed)
+  if(!isHost&&gmaps){
+    gmaps.querySelectorAll('.map-saved-item').forEach(el=>{
+      el.style.cursor='default';el.onclick=null;
+    });
+  }
+}
+
 window.showLobbyCreate=async()=>{
   showScreen('screen-lobby-create');
-  setStatus('lcStatus','⟳ Створення лобі...','warn');
+  setStatus('lcStatus','\u29f3 Створення лобі...','warn');
   const code=genCode();lobbyId=code;myRole='blue';
   document.getElementById('lcCode').textContent=code;
   document.getElementById('lcP1Name').textContent=myName;
+  document.getElementById('lcP2Name').textContent='Очікування...';
+  document.getElementById('lcP2Slot').classList.remove('filled');
+  document.getElementById('lcP2Slot').querySelector('.lps-icon').textContent='\u23f3';
+  document.getElementById('lcStartBtn').disabled=true;
+  // Reset map state
+  mapBg=null;mapBgW=0;mapBgH=0;
+  document.getElementById('mapPreview').style.display='none';
+  document.getElementById('mapUploadArea').style.display='block';
+  document.getElementById('mapUploadStatus').textContent='';
+  renderLobbyGlobalMaps();
+  setLobbyMapHostOnly(true);
+  if(globalMaps.length>0)loadMapFromUrl(globalMaps[0].url);
   try{
     await setDoc(doc(db,'lobbies',code),{
       code,host:uid,hostName:myName,guestUid:null,guestName:null,
@@ -929,10 +963,10 @@ window.showLobbyCreate=async()=>{
       createdAt:serverTimestamp(),
       presence:{blue:Date.now(),red:0}
     });
-    setStatus('lcStatus','✅ Лобі створено! Код: '+code,'ok');
+    setStatus('lcStatus','\u2705 Лобі створено! Код: '+code,'ok');
     listenLobby(code,'host');
     startPresencePing(code,'blue');
-  }catch(e){setStatus('lcStatus','❌ '+e.message,'err');}
+  }catch(e){setStatus('lcStatus','\u274c '+e.message,'err');}
 };
 
 window.showLobbyJoin=()=>{showScreen('screen-lobby-join');};
@@ -956,11 +990,17 @@ window.joinLobby=async()=>{
     document.getElementById('lcP1Name').textContent=d.hostName||'Хост';
     document.getElementById('lcP2Name').textContent=myName;
     document.getElementById('lcP2Slot').classList.add('filled');
-    document.getElementById('lcP2Slot').querySelector('.lps-icon').textContent='🔴';
-    setStatus('lcStatus','✅ Приєднались! Очікуємо старту...','ok');
+    document.getElementById('lcP2Slot').querySelector('.lps-icon').textContent='\u{1F534}';
+    document.getElementById('lcStartBtn').disabled=true;
+    // Guest: map controls hidden
+    mapBg=null;mapBgW=0;mapBgH=0;
+    renderLobbyGlobalMaps();
+    setLobbyMapHostOnly(false);
+    setStatus('lcStatus','\u2705 Приєднались! Очікуємо старту...','ok');
     listenLobby(code,'guest');
     startPresencePing(code,'red');
     if(d.mapUrl)loadMapFromUrl(d.mapUrl);
+    else if(globalMaps.length>0)loadMapFromUrl(globalMaps[0].url);
   }catch(e){setStatus('ljStatus','❌ '+e.message,'err');}
 };
 
@@ -978,7 +1018,8 @@ function listenLobby(code,role){
         setStatus('lcStatus','✅ '+d.guestName+' приєднався! Натисніть СТАРТ.','ok');
       }
     }
-    if(d.mapUrl&&mapBgW===0)loadMapFromUrl(d.mapUrl);
+    // Always sync map from lobby (host may change it)
+    if(d.mapUrl){loadMapFromUrl(d.mapUrl);}
     if(d.status==='started'){
       if(lobbyUnsub){lobbyUnsub();lobbyUnsub=null;}
       startGame(code,role,d);
@@ -1052,11 +1093,12 @@ function hideDcBanner(){
 // ════════════════════════════════
 window.startVsAI=()=>{
   isAI=true;myRole='blue';lobbyId='ai_'+Date.now();
+  const mapUrl=globalMaps[0]?.url||null;
+  mapBg=null;mapBgW=0;mapBgH=0;
   initGameState();
   showScreen('screen-game');
+  setTimeout(()=>{resizeCanvases();if(mapUrl)loadMapFromUrl(mapUrl);},50);
   startGameLoop();
-  // Load global map for AI too
-  if(globalMaps.length>0)loadMapFromUrl(globalMaps[0].url);
 };
 
 // ════════════════════════════════
@@ -1064,14 +1106,17 @@ window.startVsAI=()=>{
 // ════════════════════════════════
 function startGame(code,role,lobbyData){
   isAI=false;myRole=role;lobbyId=code;
+  // Get current map URL before initGameState resets things
+  const mapUrl=lobbyData?.mapUrl||globalMaps[0]?.url||null;
+  mapBg=null;mapBgW=0;mapBgH=0;
   initGameState();
   showScreen('screen-game');
+  // Resize canvases after screen shown
+  setTimeout(()=>{resizeCanvases();if(mapUrl)loadMapFromUrl(mapUrl);},50);
   startGameLoop();
   listenGameState(code);
   startPresencePing(code,role);
   monitorOpponentPresence(code);
-  if(lobbyData?.mapUrl)loadMapFromUrl(lobbyData.mapUrl);
-  else if(globalMaps.length>0)loadMapFromUrl(globalMaps[0].url);
 }
 
 function initGameState(){
