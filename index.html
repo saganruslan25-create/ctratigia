@@ -462,6 +462,13 @@ input,select,textarea{user-select:text!important;-webkit-user-select:text!import
       <span id="editorMapName" style="font-size:11px;color:var(--dim);font-family:'Oswald'">Нова карта</span>
       <button class="hud-btn" onclick="editorRenameMap()">✎</button>
     </div>
+    <!-- Map selector -->
+    <div style="display:flex;align-items:center;gap:6px;margin-left:16px;">
+      <span style="font-size:9px;color:var(--dim);font-family:'Oswald';letter-spacing:1px;">КАРТА:</span>
+      <select id="editorMapSelect" style="background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.12);color:#fff;padding:4px 8px;border-radius:5px;font-size:11px;font-family:'Oswald',sans-serif;" onchange="editorSwitchMap(this.value)">
+        <option value="-1">+ Нова карта</option>
+      </select>
+    </div>
     <div style="margin-left:auto;display:flex;gap:6px;">
       <input type="file" id="editorBgUpload2" accept="image/*" style="display:none" onchange="editorLoadBg(this)">
       <button class="hud-btn" onclick="document.getElementById('editorBgUpload2').click()">📷 Завантажити фото</button>
@@ -786,6 +793,7 @@ input,select,textarea{user-select:text!important;-webkit-user-select:text!import
       <div class="cmd-btn" id="cmdPatrol" onclick="setInputMode('patrol')" title="Два кліки = патруль між точками">🔄 ПАТРУЛЬ</div>
       <div class="cmd-btn" id="cmdSelectAll" onclick="selectAll()">☰ ВСІ</div>
       <div class="cmd-btn" id="cmdStop" onclick="stopSelected()">⏹ СТОП</div>
+      <div class="cmd-btn" style="color:var(--dim);font-size:9px;cursor:default;border-color:transparent;" title="Зажми Shift і клікай щоб виділити декілька юнітів">⇧ SHIFT = мульти</div>
     </div>
     <!-- Income floaters container -->
     <div id="incomeFloaters" style="position:absolute;inset:0;pointer-events:none;z-index:50;overflow:hidden;"></div>
@@ -1387,9 +1395,52 @@ const ECOLORS_TERRAIN={
   erase:null,
 };
 
-window.openMapEditor=()=>{
+window.openMapEditor=(mapIdx=-1)=>{
   showScreen('screen-editor');
+  eMapIdx=mapIdx;
   initNewEditor();
+  editorPopulateMapSelect();
+  // After init: load the active map if any
+  const loadIdx=mapIdx>=0?mapIdx:(globalMaps.length>0?0:-1);
+  if(loadIdx>=0&&globalMaps[loadIdx]){
+    eMapIdx=loadIdx;
+    eMapName=globalMaps[loadIdx].name;
+    const el=document.getElementById('editorMapName');
+    if(el)el.textContent=eMapName;
+    const sel=document.getElementById('editorMapSelect');
+    if(sel)sel.value=String(loadIdx);
+    setTimeout(()=>eLoadMapForEditing(globalMaps[loadIdx]),80);
+  }
+};
+
+function editorPopulateMapSelect(){
+  const sel=document.getElementById('editorMapSelect');
+  if(!sel)return;
+  sel.innerHTML='<option value="-1">+ Нова карта</option>';
+  globalMaps.forEach((m,i)=>{
+    const opt=document.createElement('option');
+    opt.value=String(i);opt.textContent=m.name||(i+1+'. Карта');
+    sel.appendChild(opt);
+  });
+  if(eMapIdx>=0)sel.value=String(eMapIdx);
+}
+
+window.editorSwitchMap=idxStr=>{
+  const i=parseInt(idxStr);
+  if(i<0){
+    // New blank map
+    eMapIdx=-1;eMapName='Нова карта';
+    eHistory=[];eTerrain={roads:[],forests:[],water:[],bridges:[]};
+    eMarkers=[];eBg=null;
+    eDrawDefaultBg();
+    eRedrawMarkersOverlay();eUpdateMarkerList();
+    document.getElementById('editorMapName').textContent=eMapName;
+    return;
+  }
+  if(!globalMaps[i])return;
+  eMapIdx=i;eMapName=globalMaps[i].name;
+  document.getElementById('editorMapName').textContent=eMapName;
+  eLoadMapForEditing(globalMaps[i]);
 };
 
 window.setETool=t=>{
@@ -2394,10 +2445,7 @@ function canvasRelXY(clientX,clientY){
 let pinchDist=0;
 function onTStart(e){e.preventDefault();if(e.touches.length===1){isDragging=false;const r=canvasRelXY(e.touches[0].clientX,e.touches[0].clientY);dragLX=r.x;dragLY=r.y;}else if(e.touches.length===2)pinchDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);}
 function onTMove(e){e.preventDefault();if(e.touches.length===1){const r=canvasRelXY(e.touches[0].clientX,e.touches[0].clientY);const dx=r.x-dragLX,dy=r.y-dragLY;if(Math.abs(dx)+Math.abs(dy)>4)isDragging=true;if(isDragging){camX+=dx;camY+=dy;dragLX=r.x;dragLY=r.y;drawAll();}}else if(e.touches.length===2){const nd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);const mc=canvasRelXY((e.touches[0].clientX+e.touches[1].clientX)/2,(e.touches[0].clientY+e.touches[1].clientY)/2);zoom(nd/pinchDist,mc.x,mc.y);pinchDist=nd;}}
-function onTEnd(e){e.preventDefault();if(!isDragging&&e.changedTouches.length===1){const r=canvasRelXY(e.changedTouches[0].clientX,e.changedTouches[0].clientY);handleClick(r.x,r.y);}isDragging=false;}
-function onMD(e){isDragging=false;const r=canvasRelXY(e.clientX,e.clientY);dragLX=r.x;dragLY=r.y;}
-function onMM(e){if(e.buttons===1||e.buttons===3){const r=canvasRelXY(e.clientX,e.clientY);const dx=r.x-dragLX,dy=r.y-dragLY;if(Math.abs(dx)+Math.abs(dy)>4)isDragging=true;if(isDragging){camX+=dx;camY+=dy;dragLX=r.x;dragLY=r.y;drawAll();}}}
-function onMU(e){if(!isDragging){const r=canvasRelXY(e.clientX,e.clientY);handleClick(r.x,r.y,e.button===2);}isDragging=false;}
+function onTEnd(e){e.preventDefault();if(!isDragging&&e.changedTouches.length===1){const r=canvasRelXY(e.changedTouches[0].clientX,e.changedTouches[0].clientY);handleClick(r.x,r.y,false,false);}isDragging=false;}
 function onWheel(e){e.preventDefault();const r=canvasRelXY(e.clientX,e.clientY);zoom(e.deltaY<0?1.12:0.9,r.x,r.y);}
 function zoom(f,mx,my){const ns=Math.max(.08,Math.min(10,camScale*f));camX=mx-(mx-camX)*(ns/camScale);camY=my-(my-camY)*(ns/camScale);camScale=ns;document.getElementById('zoomInd').textContent=Math.round(camScale*100)+'%';drawAll();}
 function onKey(e){
@@ -2405,14 +2453,13 @@ function onKey(e){
   if(e.code==='Space'){e.preventDefault();if(gamePhase==='placement')startBattle();}
 }
 
-function handleClick(sx,sy,isRight){
+function handleClick(sx,sy,isRight,isShift=false){
   if(!G.units)return;
   const{wx,wy}=s2w(sx,sy);
 
   // ─── PLACEMENT MODE ───
   if(placingType&&!isRight){placeUnit(wx,wy);return;}
   if(placingType&&isRight){
-    // Cancel placement on right click
     placingType=null;
     document.querySelectorAll('.sp-unit-btn').forEach(b=>b.classList.remove('active'));
     document.getElementById('placementHint').classList.remove('vis');
@@ -2423,19 +2470,34 @@ function handleClick(sx,sy,isRight){
     // LEFT CLICK: select unit
     const clicked=G.units.find(u=>!u._dead&&Math.hypot(u.x-wx,u.y-wy)<(UNIT_DEFS[u.type]?.radius||10)*1.5+4);
     if(clicked&&clicked.owner===myRole){
-      selectedUnitId=clicked.id;
-      selectedUnitIds=new Set([clicked.id]);
-      showSelInfo(clicked);
+      if(isShift){
+        // Shift+click: toggle unit in/out of selection
+        if(selectedUnitIds.has(clicked.id)){
+          selectedUnitIds.delete(clicked.id);
+          if(selectedUnitId===clicked.id)selectedUnitId=[...selectedUnitIds][0]||null;
+        }else{
+          selectedUnitIds.add(clicked.id);
+          selectedUnitId=clicked.id;
+        }
+      }else{
+        selectedUnitId=clicked.id;
+        selectedUnitIds=new Set([clicked.id]);
+      }
+      // Show info for last selected
+      const showU=G.units.find(u=>u.id===selectedUnitId);
+      if(showU)showSelInfo(showU);
+      // Update selection count indicator
+      updateSelectionHUD();
     }else{
-      // Click on enemy in attack mode = force-attack
       if(inputMode==='attack'&&clicked&&clicked.owner!==myRole){
         G.units.filter(u=>selectedUnitIds.has(u.id)&&u.owner===myRole).forEach(u=>{
           u.state='force_attack';u.forceTarget=clicked.id;u.attackTarget=clicked.id;
         });
         toast('🎯 Атакувати '+UNIT_DEFS[clicked.type]?.name||'ціль');
-      }else{
+      }else if(!isShift){
         selectedUnitId=null;selectedUnitIds=new Set();
         document.getElementById('selInfo').classList.remove('vis');
+        updateSelectionHUD();
       }
     }
   }else{
@@ -2462,18 +2524,37 @@ function handleClick(sx,sy,isRight){
         toast('🔄 Патруль встановлено!');
       }
     }else{
-      // Default: move order
-      const spread=[{dx:0,dy:0},{dx:18,dy:0},{dx:-18,dy:0},{dx:0,dy:18},{dx:0,dy:-18},{dx:18,dy:18},{dx:-18,dy:-18},{dx:18,dy:-18},{dx:-18,dy:18}];
-      let i=0;
-      G.units.filter(u=>selectedUnitIds.has(u.id)&&u.owner===myRole).forEach(u=>{
-        const off=spread[i%spread.length]||{dx:rnd(-30,30),dy:rnd(-30,30)};i++;
-        u.moveTarget={x:wx+off.dx,y:wy+off.dy};
+      // Default: move order — spread units in formation
+      const myUnits=G.units.filter(u=>selectedUnitIds.has(u.id)&&u.owner===myRole);
+      const n=myUnits.length;
+      // Formation: line perpendicular to direction of movement
+      const angle=Math.atan2(wy-myUnits.reduce((s,u)=>s+u.y,0)/n, wx-myUnits.reduce((s,u)=>s+u.x,0)/n);
+      const perp=angle+Math.PI/2;
+      const spacing=28;
+      myUnits.forEach((u,i)=>{
+        const offset=(i-(n-1)/2)*spacing;
+        u.moveTarget={x:wx+Math.cos(perp)*offset, y:wy+Math.sin(perp)*offset};
         u.state='moving';
         u.forceTarget=null;
       });
     }
   }
   drawAll();
+}
+
+function updateSelectionHUD(){
+  const n=selectedUnitIds.size;
+  const el=document.getElementById('selInfo');
+  if(n>1){
+    el.classList.add('vis');
+    document.getElementById('siName').textContent=`⚡ Виділено ${n} юнітів`;
+    document.getElementById('siHPText').textContent='';
+    document.getElementById('siHPBar').style.width='100%';
+    document.getElementById('siAtk').textContent='—';
+    document.getElementById('siDef').textContent='—';
+    document.getElementById('siSpd').textContent='—';
+    const modeEl=document.getElementById('siMode');if(modeEl)modeEl.textContent='ГРУПА';
+  }
 }
 
 // ════════════════════════════════
@@ -2711,16 +2792,68 @@ function updateUnits(dt){
       continue;
     }
 
-    // ── Advance (default): attack nearest ──
+    // ── Advance (default): FRONT LINE SYSTEM ──
+    // Each unit advances as part of a coordinated front.
+    // The front is a horizontal line; units spread along Y-axis,
+    // advance X until they hit enemy range, then hold and fire.
     if(!opp.length){continue;}
+
+    // 1. Find all friendly advance-state units
+    const frontUnits=G.units.filter(v=>v.owner===myRole&&!v._dead&&(v.state==='advance'||v.state==='front'));
+    const myIdx=frontUnits.findIndex(v=>v.id===u.id);
+    const nFront=frontUnits.length;
+
+    // 2. Find frontmost X position on enemy side (the most advanced friendly unit)
+    const frontX=myRole==='blue'
+      ? Math.max(...frontUnits.map(v=>v.x))
+      : Math.min(...frontUnits.map(v=>v.x));
+
+    // 3. Assign Y-slot: sort front units by Y, each gets an even slice
+    const sortedByY=[...frontUnits].sort((a,b)=>a.y-b.y);
+    const mySlot=sortedByY.findIndex(v=>v.id===u.id);
+    const mapH=mapBgH||1200;
+    const margin=mapH*.08;
+    const slotY=nFront<=1?mapH/2:(margin+mySlot*(mapH-margin*2)/(Math.max(1,nFront-1)));
+
+    // 4. Target front X: either advance toward enemy front, or hold at range
     const ne=nearestEnemy(u,opp);
     if(!ne)continue;
-    if(ne.d<=u.range){
+
+    // The "advance X" is the front of the enemy
+    const enemyFrontX=myRole==='blue'
+      ? Math.min(...opp.map(v=>v.x))
+      : Math.max(...opp.map(v=>v.x));
+
+    // Stop X offset — units stop when they can shoot
+    const stopDist=u.range*0.85;
+    const targetX=myRole==='blue'
+      ? enemyFrontX - stopDist
+      : enemyFrontX + stopDist;
+
+    // 5. Move toward (targetX, slotY)
+    const distToTarget=Math.hypot(u.x-targetX,u.y-slotY);
+    const atTargetX=myRole==='blue'?u.x>=targetX:u.x<=targetX;
+
+    if(atTargetX&&Math.abs(u.y-slotY)<20){
+      // In position — hold and fire
+      u.state='front';
       u.attackTarget=ne.unit.id;
-      if(now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;doAttack(u,ne.unit);}
+      if(ne.d<=u.range&&now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;doAttack(u,ne.unit);}
     }else{
-      moveToward(u,ne.unit.x,ne.unit.y,dt);
+      u.state='advance';
+      // Move toward slot: prioritize Y alignment first within 60px X tolerance,
+      // then advance X together
+      const xBehindFront=myRole==='blue'?u.x<frontX-50:u.x>frontX+50;
+      let mx=targetX,my=slotY;
+      if(xBehindFront){
+        // Advance X but also correct Y
+        mx=targetX;my=slotY;
+      }
+      moveToward(u,mx,my,dt);
+      // Also fire if enemy in range while moving
+      if(ne.d<=u.range&&now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;u.attackTarget=ne.unit.id;doAttack(u,ne.unit);}
     }
+    u.state='advance'; // keep state name consistent for front line drawing
   }
   G.units=G.units.filter(u=>!u._dead);
 }
@@ -2810,41 +2943,78 @@ function updateAI(dt){
   const oppRole=myRole==='blue'?'red':'blue';
   const now=performance.now();
   const mapW=mapBgW||2000;
+  const mapH=mapBgH||1200;
 
-  for(const u of G.units.filter(u=>u.owner===oppRole&&!u._dead)){
-    const pl=G.units.filter(e=>e.owner===myRole&&!e._dead);
-    const enemyCities=G.cities?.filter(c=>c.owner===myRole)||[];
-    const neutralCities=G.cities?.filter(c=>c.owner==='neutral')||[];
+  const pl=G.units.filter(e=>e.owner===myRole&&!e._dead);
+  const aiUnits=G.units.filter(u=>u.owner===oppRole&&!u._dead);
+  if(!aiUnits.length)return;
 
-    let target=null;
+  const enemyCities=G.cities?.filter(c=>c.owner===myRole)||[];
+  const neutralCities=G.cities?.filter(c=>c.owner==='neutral')||[];
+
+  // Sort AI units by Y for slot assignment
+  const sortedAIByY=[...aiUnits].sort((a,b)=>a.y-b.y);
+  const nAI=aiUnits.length;
+
+  // Player frontmost X (how far ahead the player is)
+  const plFrontX=pl.length?(oppRole==='red'
+    ? Math.max(...pl.map(v=>v.x))
+    : Math.min(...pl.map(v=>v.x))):mapW/2;
+
+  for(const u of aiUnits){
+    const ne=nearestFrom(u,pl);
 
     if(aiMode==='defense'){
       const base=G.bases?.[oppRole];
       const baseX=base?base.x:(oppRole==='red'?mapW*.85:mapW*.15);
-      const baseY=base?base.y:(mapBgH||1200)*.5;
-      const ne=nearestFrom(u,pl);
-      if(ne&&ne.d<320){target={x:ne.unit.x,y:ne.unit.y};}
-      else{target={x:baseX+rnd(-80,80),y:baseY+rnd(-80,80)};}
-    }else if(aiMode==='attack'||aiMode==='blitz'){
-      const ne=nearestFrom(u,pl);
-      if(enemyCities.length>0&&Math.random()<.4){const c=enemyCities[Math.floor(Math.random()*enemyCities.length)];target={x:c.x,y:c.y};}
-      else if(ne)target={x:ne.unit.x,y:ne.unit.y};
-      else if(G.bases?.[myRole])target=G.bases[myRole];
-    }else{
-      const allT=[...neutralCities,...enemyCities];
-      let nearC=null,nearCD=Infinity;
-      for(const c of allT){const d=Math.hypot(c.x-u.x,c.y-u.y);if(d<nearCD){nearCD=d;nearC=c;}}
-      target=nearC?{x:nearC.x,y:nearC.y}:null;
-      if(!target){const ne=nearestFrom(u,pl);if(ne)target={x:ne.unit.x,y:ne.unit.y};}
+      const baseY=base?base.y:mapH*.5;
+      if(ne&&ne.d<280){
+        if(ne.d<=u.range){if(now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;u.attackTarget=ne.unit.id;doAttack(u,ne.unit);}}
+        else{aiMovePref(u,ne.unit.x,ne.unit.y,dt*.8);}
+      }else if(Math.hypot(u.x-baseX,u.y-baseY)>120){
+        aiMovePref(u,baseX+rnd(-60,60),baseY+rnd(-60,60),dt*.4);
+      }else if(ne&&ne.d<=u.range&&now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;u.attackTarget=ne.unit.id;doAttack(u,ne.unit);}
+      continue;
     }
 
-    // Check attack range
-    let attackTarget=null;
-    for(const e of pl){if(Math.hypot(e.x-u.x,e.y-u.y)<=u.range){attackTarget=e;break;}}
-    if(attackTarget){
-      if(now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;u.attackTarget=attackTarget.id;doAttack(u,attackTarget);}
-    }else if(target){
-      aiMovePref(u,target.x,target.y,dt);
+    // ── FRONT LINE formation for attack/blitz/conquest ──
+    const slotIdx=sortedAIByY.findIndex(v=>v.id===u.id);
+    const margin=mapH*.08;
+    const slotY=nAI<=1?mapH/2:(margin+slotIdx*(mapH-margin*2)/(Math.max(1,nAI-1)));
+
+    // Stop X: unit halts at shoot range from player front
+    const stopDist=u.range*0.85;
+    const targetX=oppRole==='red'
+      ? plFrontX - stopDist
+      : plFrontX + stopDist;
+
+    // Conquest/blitz: occasionally break off to take objectives
+    let objectiveTarget=null;
+    if((aiMode==='conquest'||aiMode==='blitz')&&slotIdx%3===0){
+      const allT=[...neutralCities,...enemyCities];
+      if(allT.length){
+        let nc=null,nd2=Infinity;
+        for(const c of allT){const d=Math.hypot(c.x-u.x,c.y-u.y);if(d<nd2){nd2=d;nc=c;}}
+        if(nc&&(!ne||nd2<ne.d*0.7))objectiveTarget=nc;
+      }
+    }
+
+    const atTargetX=oppRole==='red'?u.x<=targetX:u.x>=targetX;
+    const atSlotY=Math.abs(u.y-slotY)<25;
+
+    // Always fire if in range
+    if(ne&&ne.d<=u.range){
+      if(now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;u.attackTarget=ne.unit.id;doAttack(u,ne.unit);}
+    }
+
+    if(objectiveTarget){
+      aiMovePref(u,objectiveTarget.x,objectiveTarget.y,dt);
+      u.state='advance';
+    }else if(atTargetX&&atSlotY){
+      u.state='front'; // hold position
+    }else{
+      u.state='advance';
+      aiMovePref(u,targetX,slotY,dt);
     }
   }
 }
