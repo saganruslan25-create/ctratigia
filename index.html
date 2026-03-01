@@ -211,14 +211,26 @@ input,select,textarea{user-select:text!important;-webkit-user-select:text!import
 .hud-btn:hover{border-color:rgba(34,197,94,.4);color:var(--green2);}
 .hud-btn.danger:hover{border-color:rgba(239,68,68,.4);color:#f87171;}
 
-/* GAME BODY - FIXED: no black walls */
-.game-body{flex:1;display:flex;overflow:hidden;position:relative;background:#06090d;}
+/* GAME BODY - FIXED: canvas area fills all remaining space */
+.game-area{flex:1;position:relative;overflow:hidden;background:#06090d;min-width:0;}
+.game-body{display:flex;flex:1;overflow:hidden;}
 #mapCanvas,#unitsCanvas,#frontCanvas,#uiCanvas,#interCanvas{position:absolute;top:0;left:0;}
 #interCanvas{touch-action:none;}
 #unitsCanvas,#frontCanvas,#uiCanvas{pointer-events:none;}
 
-.side-panel{width:220px;min-width:220px;background:rgba(4,6,8,.97);border-left:1px solid var(--border);
+.side-panel{width:220px;min-width:220px;max-width:220px;background:rgba(4,6,8,.97);border-left:1px solid var(--border);
   display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;position:relative;z-index:10;}
+
+/* Unit command toolbar */
+.cmd-toolbar{position:absolute;bottom:55px;left:50%;transform:translateX(-50%);
+  display:flex;gap:6px;z-index:60;pointer-events:auto;}
+.cmd-btn{background:rgba(8,12,16,.95);border:1px solid rgba(255,255,255,.15);color:var(--dim);
+  padding:6px 14px;border-radius:6px;font-family:'Oswald',sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:1px;cursor:pointer;transition:.2s;white-space:nowrap;}
+.cmd-btn:hover{border-color:rgba(34,197,94,.5);color:var(--green2);}
+.cmd-btn.active{background:rgba(34,197,94,.15);border-color:var(--green);color:var(--green2);}
+.cmd-btn.attack-mode{border-color:rgba(239,68,68,.4);color:#f87171;}
+.cmd-btn.attack-mode:hover,.cmd-btn.attack-mode.active{background:rgba(239,68,68,.15);border-color:#ef4444;}
 .sp-section{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.04);}
 .sp-label{font-size:9px;color:var(--dim);letter-spacing:3px;margin-bottom:7px;}
 .sp-unit-btn{display:flex;align-items:center;gap:7px;padding:7px 9px;border-radius:6px;
@@ -595,7 +607,8 @@ input,select,textarea{user-select:text!important;-webkit-user-select:text!import
       <button class="hud-btn danger" onclick="confirmQuit()">ВИЙТИ</button>
     </div>
   </div>
-  <div class="game-body" id="gameBody">
+  <div class="game-body" id="gameBodyOuter">
+  <div class="game-area" id="gameBody">
     <canvas id="mapCanvas"></canvas>
     <canvas id="unitsCanvas"></canvas>
     <canvas id="frontCanvas"></canvas>
@@ -619,10 +632,24 @@ input,select,textarea{user-select:text!important;-webkit-user-select:text!import
         <div class="si-stat"><span>АТК</span><b id="siAtk">—</b></div>
         <div class="si-stat"><span>ЗАХ</span><b id="siDef">—</b></div>
         <div class="si-stat"><span>ШВ</span><b id="siSpd">—</b></div>
+        <div class="si-stat"><span>РЕЖ</span><b id="siMode">—</b></div>
+      </div>
+      <div style="display:flex;gap:4px;margin-top:6px;">
+        <button onclick="cmdSelected('advance')" style="flex:1;padding:3px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:var(--green2);border-radius:4px;font-family:'Oswald';font-size:9px;cursor:pointer;letter-spacing:1px;">▶ АТК</button>
+        <button onclick="cmdSelected('defend')" style="flex:1;padding:3px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);color:#60a5fa;border-radius:4px;font-family:'Oswald';font-size:9px;cursor:pointer;letter-spacing:1px;">🛡 ЗАХ</button>
+        <button onclick="cmdSelected('hold')" style="flex:1;padding:3px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:var(--gold);border-radius:4px;font-family:'Oswald';font-size:9px;cursor:pointer;letter-spacing:1px;">⏸ СТІЙ</button>
       </div>
     </div>
     <div class="zoom-ind" id="zoomInd">100%</div>
     <div class="placement-hint" id="placementHint">КЛІКНІТЬ НА СВОЇЙ ПОЛОВИНІ</div>
+    <!-- Command toolbar -->
+    <div class="cmd-toolbar" id="cmdToolbar">
+      <div class="cmd-btn active" id="cmdMove" onclick="setInputMode('move')" title="Клік = виділити/переміщати">⚡ ПЕРЕМІЩЕННЯ</div>
+      <div class="cmd-btn attack-mode" id="cmdAttack" onclick="setInputMode('attack')" title="Клік = наказ атакувати ціль">🎯 АТАКА</div>
+      <div class="cmd-btn" id="cmdPatrol" onclick="setInputMode('patrol')" title="Два кліки = патруль між точками">🔄 ПАТРУЛЬ</div>
+      <div class="cmd-btn" id="cmdSelectAll" onclick="selectAll()">☰ ВСІ</div>
+      <div class="cmd-btn" id="cmdStop" onclick="stopSelected()">⏹ СТОП</div>
+    </div>
     <!-- Income floaters container -->
     <div id="incomeFloaters" style="position:absolute;inset:0;pointer-events:none;z-index:50;overflow:hidden;"></div>
   </div>
@@ -705,6 +732,45 @@ const UNIT_DEFS={
   tank:{name:'Танк',emoji:'🛡️',radius:12,hp:350,maxHp:350,atk:40,def:30,speed:20,range:60,cost:600},
   heli:{name:'Гелікоптер',emoji:'🚁',radius:9,hp:150,maxHp:150,atk:35,def:5,speed:55,range:80,cost:500},
   artillery:{name:'Артилерія',emoji:'💥',radius:8,hp:120,maxHp:120,atk:70,def:3,speed:10,range:200,cost:700},
+  stinger:{name:'Стрілець «Смерч»',emoji:'🚀',radius:8,hp:90,maxHp:90,atk:95,def:2,speed:8,range:380,cost:850,isMissile:true},
+};
+
+// Input modes: 'move' | 'attack' | 'patrol'
+let inputMode='move';
+let patrolPoint1=null; // for patrol mode
+let selectedUnitIds=new Set(); // multi-select
+// Projectiles array
+let projectiles=[];
+
+// ─── COMMAND FUNCTIONS ───
+window.setInputMode=mode=>{
+  inputMode=mode;
+  ['cmdMove','cmdAttack','cmdPatrol'].forEach(id=>document.getElementById(id)?.classList.remove('active'));
+  const map={move:'cmdMove',attack:'cmdAttack',patrol:'cmdPatrol'};
+  document.getElementById(map[mode])?.classList.add('active');
+  patrolPoint1=null;
+  const hints={move:'ЛКМ = виділити юніт | ПКМ = наказ руху',attack:'ЛКМ = виділити | ПКМ = атакувати ціль',patrol:'ПКМ = 1-а точка → ще ПКМ = 2-а точка патрулю'};
+  document.getElementById('placementHint').textContent=hints[mode];
+  document.getElementById('placementHint').classList.add('vis');
+  setTimeout(()=>{if(gamePhase==='battle')document.getElementById('placementHint').classList.remove('vis');},2000);
+};
+window.selectAll=()=>{
+  selectedUnitIds=new Set(G.units.filter(u=>u.owner===myRole&&!u._dead).map(u=>u.id));
+  selectedUnitId=selectedUnitIds.size?[...selectedUnitIds][0]:null;
+  toast('☰ Всі юніти виділено: '+selectedUnitIds.size);drawAll();
+};
+window.stopSelected=()=>{
+  G.units.filter(u=>selectedUnitIds.has(u.id)).forEach(u=>{u.state='hold';u.moveTarget=null;u.patrolA=null;u.patrolB=null;});
+  toast('⏹ Стоп!');
+};
+window.cmdSelected=cmd=>{
+  G.units.filter(u=>selectedUnitIds.has(u.id)).forEach(u=>{
+    if(cmd==='advance'){u.state='advance';u.moveTarget=null;}
+    else if(cmd==='defend'){u.state='defend';u.defendX=u.x;u.defendY=u.y;}
+    else if(cmd==='hold'){u.state='hold';u.moveTarget=null;}
+  });
+  const labels={advance:'⚔️ Атака',defend:'🛡️ Оборона',hold:'⏸ Стоп'};
+  toast(labels[cmd]);
 };
 
 // City income per tick (every 15s)
@@ -1682,10 +1748,9 @@ function initGameCanvases(){
 }
 
 function resizeCanvases(){
-  const body=document.getElementById('gameBody');if(!body)return;
-  // FIX: use clientWidth of gameBody minus side panel
-  // Side panel is OUTSIDE gameBody now — just use full gameBody dimensions
-  CW=body.clientWidth;CH=body.clientHeight;
+  const area=document.getElementById('gameBody');if(!area)return;
+  // Use the game-area div which is flex:1 inside game-body
+  CW=area.clientWidth;CH=area.clientHeight;
   CW=Math.max(1,CW);CH=Math.max(1,CH);
   ['mapCanvas','unitsCanvas','frontCanvas','uiCanvas','interCanvas'].forEach(id=>{
     const cv=document.getElementById(id);if(!cv)return;
@@ -1720,9 +1785,9 @@ let pinchDist=0;
 function onTStart(e){e.preventDefault();if(e.touches.length===1){isDragging=false;dragLX=e.touches[0].clientX;dragLY=e.touches[0].clientY;}else if(e.touches.length===2)pinchDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);}
 function onTMove(e){e.preventDefault();if(e.touches.length===1){const dx=e.touches[0].clientX-dragLX,dy=e.touches[0].clientY-dragLY;if(Math.abs(dx)+Math.abs(dy)>4)isDragging=true;if(isDragging){camX+=dx;camY+=dy;dragLX=e.touches[0].clientX;dragLY=e.touches[0].clientY;drawAll();}}else if(e.touches.length===2){const nd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);zoom(nd/pinchDist,(e.touches[0].clientX+e.touches[1].clientX)/2,(e.touches[0].clientY+e.touches[1].clientY)/2);pinchDist=nd;}}
 function onTEnd(e){e.preventDefault();if(!isDragging&&e.changedTouches.length===1)handleClick(e.changedTouches[0].clientX,e.changedTouches[0].clientY);isDragging=false;}
-function onMD(e){if(e.button===2)return;isDragging=false;dragLX=e.clientX;dragLY=e.clientY;}
-function onMM(e){if(e.buttons===1){const dx=e.clientX-dragLX,dy=e.clientY-dragLY;if(Math.abs(dx)+Math.abs(dy)>4)isDragging=true;if(isDragging){camX+=dx;camY+=dy;dragLX=e.clientX;dragLY=e.clientY;drawAll();}}}
-function onMU(e){if(!isDragging)handleClick(e.clientX,e.clientY);isDragging=false;}
+function onMD(e){isDragging=false;dragLX=e.clientX;dragLY=e.clientY;}
+function onMM(e){if(e.buttons===1||e.buttons===3){const dx=e.clientX-dragLX,dy=e.clientY-dragLY;if(Math.abs(dx)+Math.abs(dy)>4)isDragging=true;if(isDragging){camX+=dx;camY+=dy;dragLX=e.clientX;dragLY=e.clientY;drawAll();}}}
+function onMU(e){if(!isDragging)handleClick(e.clientX,e.clientY,e.button===2);isDragging=false;}
 function onWheel(e){e.preventDefault();zoom(e.deltaY<0?1.12:0.9,e.clientX,e.clientY);}
 function zoom(f,mx,my){const ns=Math.max(.08,Math.min(10,camScale*f));camX=mx-(mx-camX)*(ns/camScale);camY=my-(my-camY)*(ns/camScale);camScale=ns;document.getElementById('zoomInd').textContent=Math.round(camScale*100)+'%';drawAll();}
 function onKey(e){
@@ -1730,13 +1795,74 @@ function onKey(e){
   if(e.code==='Space'){e.preventDefault();if(gamePhase==='placement')startBattle();}
 }
 
-function handleClick(sx,sy){
+function handleClick(sx,sy,isRight){
   if(!G.units)return;
   const{wx,wy}=s2w(sx,sy);
-  if(placingType){placeUnit(wx,wy);return;}
-  const clicked=G.units.find(u=>Math.hypot(u.x-wx,u.y-wy)<(UNIT_DEFS[u.type]?.radius||10)+4);
-  if(clicked){selectedUnitId=clicked.id;showSelInfo(clicked);}
-  else{selectedUnitId=null;document.getElementById('selInfo').classList.remove('vis');}
+
+  // ─── PLACEMENT MODE ───
+  if(placingType&&!isRight){placeUnit(wx,wy);return;}
+  if(placingType&&isRight){
+    // Cancel placement on right click
+    placingType=null;
+    document.querySelectorAll('.sp-unit-btn').forEach(b=>b.classList.remove('active'));
+    document.getElementById('placementHint').classList.remove('vis');
+    return;
+  }
+
+  if(!isRight){
+    // LEFT CLICK: select unit
+    const clicked=G.units.find(u=>Math.hypot(u.x-wx,u.y-wy)<(UNIT_DEFS[u.type]?.radius||10)+5);
+    if(clicked&&clicked.owner===myRole){
+      selectedUnitId=clicked.id;
+      selectedUnitIds=new Set([clicked.id]);
+      showSelInfo(clicked);
+    }else{
+      // Click on enemy in attack mode = force-attack
+      if(inputMode==='attack'&&clicked&&clicked.owner!==myRole){
+        G.units.filter(u=>selectedUnitIds.has(u.id)&&u.owner===myRole).forEach(u=>{
+          u.state='force_attack';u.forceTarget=clicked.id;u.attackTarget=clicked.id;
+        });
+        toast('🎯 Атакувати '+UNIT_DEFS[clicked.type]?.name||'ціль');
+      }else{
+        selectedUnitId=null;selectedUnitIds=new Set();
+        document.getElementById('selInfo').classList.remove('vis');
+      }
+    }
+  }else{
+    // RIGHT CLICK: issue order to selected units
+    if(!selectedUnitIds.size&&selectedUnitId){selectedUnitIds=new Set([selectedUnitId]);}
+    if(!selectedUnitIds.size)return;
+
+    const targetEnemy=G.units.find(u=>u.owner!==myRole&&!u._dead&&Math.hypot(u.x-wx,u.y-wy)<(UNIT_DEFS[u.type]?.radius||10)+8);
+
+    if(inputMode==='attack'&&targetEnemy){
+      G.units.filter(u=>selectedUnitIds.has(u.id)&&u.owner===myRole).forEach(u=>{
+        u.state='force_attack';u.forceTarget=targetEnemy.id;
+      });
+      toast('🎯 Атакувати '+UNIT_DEFS[targetEnemy.type]?.name||'ціль');
+    }else if(inputMode==='patrol'){
+      if(!patrolPoint1){
+        patrolPoint1={x:wx,y:wy};
+        toast('📍 Точка 1 встановлена. Вкажіть точку 2 ПКМ');
+      }else{
+        G.units.filter(u=>selectedUnitIds.has(u.id)&&u.owner===myRole).forEach(u=>{
+          u.state='patrol';u.patrolA={x:patrolPoint1.x,y:patrolPoint1.y};u.patrolB={x:wx,y:wy};u.patrolDir=1;u.moveTarget={x:wx,y:wy};
+        });
+        patrolPoint1=null;
+        toast('🔄 Патруль встановлено!');
+      }
+    }else{
+      // Default: move order
+      const spread=[{dx:0,dy:0},{dx:18,dy:0},{dx:-18,dy:0},{dx:0,dy:18},{dx:0,dy:-18},{dx:18,dy:18},{dx:-18,dy:-18},{dx:18,dy:-18},{dx:-18,dy:18}];
+      let i=0;
+      G.units.filter(u=>selectedUnitIds.has(u.id)&&u.owner===myRole).forEach(u=>{
+        const off=spread[i%spread.length]||{dx:rnd(-30,30),dy:rnd(-30,30)};i++;
+        u.moveTarget={x:wx+off.dx,y:wy+off.dy};
+        u.state='moving';
+        u.forceTarget=null;
+      });
+    }
+  }
   drawAll();
 }
 
@@ -1753,14 +1879,18 @@ function buildUnitList(){
 }
 
 window.selectUnitType=type=>{
-  if(gamePhase!=='placement'){toast('❌ Лише під час розміщення!');return;}
+  // Allow buying during battle too (fix #3)
   const def=UNIT_DEFS[type];
   if(G.funds[myRole]<def.cost){toast('❌ Недостатньо фондів! ('+G.funds[myRole]+'/'+def.cost+')');return;}
+  if(gamePhase==='battle'){
+    // In battle: place near your base
+    toast('📍 Клікніть де розмістити '+def.name+' ('+def.cost+'₴)');
+  }
   placingType=type;
   document.querySelectorAll('.sp-unit-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('ubtn_'+type)?.classList.add('active');
   document.getElementById('placementHint').classList.add('vis');
-  document.getElementById('placementHint').textContent='РОЗМІСТІТЬ '+def.name.toUpperCase()+' ('+def.cost+' ₴) | ESC = скасувати';
+  document.getElementById('placementHint').textContent='РОЗМІСТІТЬ '+def.name.toUpperCase()+' ('+def.cost+' ₴) | ПКМ = скасувати';
 };
 
 function isOnWater(wx,wy){
@@ -1781,19 +1911,20 @@ function placeUnit(wx,wy){
   const validZone=myRole==='blue'?wx<halfW:wx>=halfW;
   if(!validZone){toast('⚠️ Лише на своїй половині!');return;}
   if(G.funds[myRole]<def.cost){toast('❌ Недостатньо фондів!');return;}
-  // Check water — only helicopters can be on water
   if(isOnWater(wx,wy)&&!isOnBridge(wx,wy)&&placingType!=='heli'){
-    toast('🌊 Не можна розміщувати на воді! Лише гелікоптер або на мосту.');return;
+    toast('🌊 Лише гелікоптер або на мосту!');return;
   }
   G.units.push({
     id:G.nextId++,type:placingType,owner:myRole,
     x:wx,y:wy,tx:wx,ty:wy,vx:0,vy:0,
     hp:def.hp,maxHp:def.hp,atk:def.atk,def:def.def,
     speed:def.speed,range:def.range,radius:def.radius,
-    state:'idle',attackTarget:null,lastAttack:0,lastAttackAnim:0,
+    state:gamePhase==='battle'?'advance':'idle',
+    attackTarget:null,forceTarget:null,moveTarget:null,
+    lastAttack:0,lastAttackAnim:0,
   });
   G.funds[myRole]-=def.cost;
-  addLog('📍 '+def.name+' розміщено','info');
+  addLog('📍 '+def.name+' розміщено'+(gamePhase==='battle'?' [підкріплення!]':''),'info');
   placingType=null;
   document.querySelectorAll('.sp-unit-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('placementHint').classList.remove('vis');
@@ -1870,6 +2001,7 @@ function startGameLoop(){
     if(gamePhase==='battle'){
       updateUnits(dt);
       updateAI(dt);
+      updateProjectiles(dt);
       updateCityCapture(dt);
       checkWinCondition();
     }
@@ -1878,45 +2010,170 @@ function startGameLoop(){
   })(performance.now());
 }
 
-// ════════════════════════════════
-//  UNIT LOGIC — water pathing
-// ════════════════════════════════
 function canMoveTo(x,y,unitType){
-  // Helis fly over water; others need bridges
   if(unitType==='heli')return true;
   if(isOnWater(x,y)&&!isOnBridge(x,y))return false;
   return true;
 }
 
+// ════════════════════════════════
+//  UNIT LOGIC — full state machine
+// ════════════════════════════════
 function updateUnits(dt){
   const now=performance.now();
   for(const u of G.units.filter(u=>u.owner===myRole&&!u._dead)){
     const opp=G.units.filter(e=>e.owner!==myRole&&!e._dead);
-    if(!opp.length){u.state='idle';continue;}
-    let nearest=null,nd=Infinity;
-    for(const e of opp){const d=Math.hypot(e.x-u.x,e.y-u.y);if(d<nd){nd=d;nearest=e;}}
-    if(nd<=u.range){
-      u.state='attack';u.attackTarget=nearest.id;
-      if(now-u.lastAttack>1000){
-        u.lastAttack=now;u.lastAttackAnim=now;
-        const dmg=Math.max(1,u.atk-Math.floor(nearest.def/3)+rnd(-3,3));
-        nearest.hp-=dmg;
-        if(nearest.hp<=0)killUnit(nearest);
-      }
-    }else{
-      u.state='advance';
-      const dx=nearest.x-u.x,dy=nearest.y-u.y,dist=Math.sqrt(dx*dx+dy*dy);
-      const nx=u.x+(dx/dist)*u.speed*dt;
-      const ny=u.y+(dy/dist)*u.speed*dt;
-      if(canMoveTo(nx,ny,u.type)){u.x=nx;u.y=ny;}
+
+    // ── Force attack: chase specific target ──
+    if(u.state==='force_attack'&&u.forceTarget){
+      const tgt=G.units.find(x=>x.id===u.forceTarget&&!x._dead);
+      if(!tgt){u.state='advance';u.forceTarget=null;}
       else{
-        // Try sliding around obstacle
-        if(canMoveTo(nx,u.y,u.type))u.x=nx;
-        else if(canMoveTo(u.x,ny,u.type))u.y=ny;
+        const d=Math.hypot(tgt.x-u.x,tgt.y-u.y);
+        if(d<=u.range){
+          if(now-u.lastAttack>1000){
+            u.lastAttack=now;u.lastAttackAnim=now;
+            doAttack(u,tgt);
+          }
+        }else{
+          moveToward(u,tgt.x,tgt.y,dt);
+        }
       }
+      continue;
+    }
+
+    // ── Hold/Stop: don't move, but shoot if in range ──
+    if(u.state==='hold'){
+      if(opp.length){
+        const near=nearestEnemy(u,opp);
+        if(near&&near.d<=u.range&&now-u.lastAttack>1000){
+          u.lastAttack=now;u.lastAttackAnim=now;u.attackTarget=near.unit.id;
+          doAttack(u,near.unit);
+        }
+      }
+      continue;
+    }
+
+    // ── Move to target ──
+    if(u.state==='moving'&&u.moveTarget){
+      const dx=u.moveTarget.x-u.x,dy=u.moveTarget.y-u.y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<6){u.state='advance';u.moveTarget=null;}
+      else{
+        // Shoot at close enemies while moving
+        if(opp.length){const ne=nearestEnemy(u,opp);if(ne&&ne.d<=u.range&&now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;u.attackTarget=ne.unit.id;doAttack(u,ne.unit);}}
+        moveToward(u,u.moveTarget.x,u.moveTarget.y,dt);
+      }
+      continue;
+    }
+
+    // ── Patrol ──
+    if(u.state==='patrol'&&u.patrolA&&u.patrolB){
+      // Attack enemies in range first
+      if(opp.length){const ne=nearestEnemy(u,opp);if(ne&&ne.d<=u.range&&now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;u.attackTarget=ne.unit.id;doAttack(u,ne.unit);}}
+      const dest=u.patrolDir>0?u.patrolB:u.patrolA;
+      const dx=dest.x-u.x,dy=dest.y-u.y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<8)u.patrolDir*=-1;
+      else moveToward(u,dest.x,dest.y,dt);
+      continue;
+    }
+
+    // ── Defend: stay near defend point, engage threats ──
+    if(u.state==='defend'){
+      const defX=u.defendX||u.x,defY=u.defendY||u.y;
+      if(opp.length){
+        const ne=nearestEnemy(u,opp);
+        if(ne&&ne.d<=u.range){
+          if(now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;u.attackTarget=ne.unit.id;doAttack(u,ne.unit);}
+        }else if(ne&&ne.d<=u.range*2.5){
+          // Chase threat but return if too far from defend point
+          const distFromBase=Math.hypot(ne.unit.x-defX,ne.unit.y-defY);
+          if(distFromBase<u.range*3)moveToward(u,ne.unit.x,ne.unit.y,dt*.6);
+        }
+      }
+      // Drift back to defend point
+      const dBack=Math.hypot(u.x-defX,u.y-defY);
+      if(dBack>40)moveToward(u,defX,defY,dt*.3);
+      continue;
+    }
+
+    // ── Advance (default): attack nearest ──
+    if(!opp.length){continue;}
+    const ne=nearestEnemy(u,opp);
+    if(!ne)continue;
+    if(ne.d<=u.range){
+      u.attackTarget=ne.unit.id;
+      if(now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;doAttack(u,ne.unit);}
+    }else{
+      moveToward(u,ne.unit.x,ne.unit.y,dt);
     }
   }
   G.units=G.units.filter(u=>!u._dead);
+}
+
+function nearestEnemy(u,opp){
+  let nearest=null,nd=Infinity;
+  for(const e of opp){const d=Math.hypot(e.x-u.x,e.y-u.y);if(d<nd){nd=d;nearest=e;}}
+  return nearest?{unit:nearest,d:nd}:null;
+}
+
+function moveToward(u,tx,ty,dt){
+  const dx=tx-u.x,dy=ty-u.y,dist=Math.max(1,Math.sqrt(dx*dx+dy*dy));
+  const nx=u.x+(dx/dist)*u.speed*dt;
+  const ny=u.y+(dy/dist)*u.speed*dt;
+  if(canMoveTo(nx,ny,u.type)){u.x=nx;u.y=ny;}
+  else if(canMoveTo(nx,u.y,u.type)){u.x=nx;}
+  else if(canMoveTo(u.x,ny,u.type)){u.y=ny;}
+}
+
+function doAttack(attacker,target){
+  const def=UNIT_DEFS[attacker.type];
+  if(def?.isMissile){
+    // Launch missile projectile
+    projectiles.push({
+      id:Date.now()+'_'+Math.random(),
+      ox:attacker.x,oy:attacker.y,
+      tx:target.x+rnd(-5,5),ty:target.y+rnd(-5,5),
+      targetId:target.id,
+      owner:attacker.owner,
+      progress:0,
+      damage:Math.max(1,attacker.atk+rnd(-5,5)),
+      speed:3.5,// progress per frame (0-1 normalized)
+      trail:[],
+    });
+    addLog('🚀 «Смерч» пуск!',attacker.owner===myRole?'info':'warn');
+    return;
+  }
+  const dmg=Math.max(1,attacker.atk-Math.floor(target.def/3)+rnd(-3,3));
+  target.hp-=dmg;
+  if(target.hp<=0)killUnit(target);
+}
+
+function updateProjectiles(dt){
+  const speed=dt*280; // pixels per second
+  for(const p of projectiles){
+    // Move progress
+    const totalDist=Math.hypot(p.tx-p.ox,p.ty-p.oy);
+    p.progress+=speed/Math.max(1,totalDist);
+    // Save trail
+    const cx=p.ox+(p.tx-p.ox)*p.progress;
+    const cy=p.oy+(p.ty-p.oy)*p.progress;
+    p.trail.push({x:cx,y:cy});
+    if(p.trail.length>12)p.trail.shift();
+    // Hit
+    if(p.progress>=1){
+      p._done=true;
+      const tgt=G.units.find(u=>u.id===p.targetId&&!u._dead);
+      if(tgt){
+        tgt.hp-=p.damage;tgt.lastAttackAnim=performance.now();
+        if(tgt.hp<=0)killUnit(tgt);
+      }
+      // Splash on nearby units
+      G.units.filter(u=>u.id!==p.targetId&&!u._dead&&Math.hypot(u.x-p.tx,u.y-p.ty)<30&&u.owner!==p.owner).forEach(u=>{
+        const splash=Math.round(p.damage*.3);u.hp-=splash;if(u.hp<=0)killUnit(u);
+      });
+    }
+  }
+  projectiles=projectiles.filter(p=>!p._done);
 }
 
 function killUnit(u){
@@ -1940,61 +2197,43 @@ function updateAI(dt){
     const enemyCities=G.cities?.filter(c=>c.owner===myRole)||[];
     const neutralCities=G.cities?.filter(c=>c.owner==='neutral')||[];
 
-    let target=null; // world position to move toward
+    let target=null;
 
     if(aiMode==='defense'){
-      // AI stays near its base and counter-attacks when enemies come close
       const base=G.bases?.[oppRole];
       const baseX=base?base.x:(oppRole==='red'?mapW*.85:mapW*.15);
       const baseY=base?base.y:(mapBgH||1200)*.5;
-      const nearestEnemy=pl.reduce((n,e)=>{const d=Math.hypot(e.x-u.x,e.y-u.y);return(!n||d<n.d)?{unit:e,d}:n;},null);
-      if(nearestEnemy&&nearestEnemy.d<300){
-        // Chase if enemy is close
-        target={x:nearestEnemy.unit.x,y:nearestEnemy.unit.y};
-      }else{
-        // Return to defend zone
-        target={x:baseX+(rnd(-100,100)),y:baseY+(rnd(-100,100))};
-      }
+      const ne=nearestFrom(u,pl);
+      if(ne&&ne.d<320){target={x:ne.unit.x,y:ne.unit.y};}
+      else{target={x:baseX+rnd(-80,80),y:baseY+rnd(-80,80)};}
     }else if(aiMode==='attack'||aiMode==='blitz'){
-      // Aggressively push player's base
-      const playerBase=G.bases?.[myRole];
-      // Prioritize enemy cities first
-      if(enemyCities.length>0){const c=enemyCities[Math.floor(Math.random()*Math.min(2,enemyCities.length))];target={x:c.x,y:c.y};}
-      else if(pl.length>0){target={x:pl[0].x,y:pl[0].y};}
-      else if(playerBase)target={x:playerBase.x,y:playerBase.y};
+      const ne=nearestFrom(u,pl);
+      if(enemyCities.length>0&&Math.random()<.4){const c=enemyCities[Math.floor(Math.random()*enemyCities.length)];target={x:c.x,y:c.y};}
+      else if(ne)target={x:ne.unit.x,y:ne.unit.y};
+      else if(G.bases?.[myRole])target=G.bases[myRole];
     }else{
-      // conquest: go for neutral cities first, then enemy
-      const allTargets=[...neutralCities,...enemyCities];
-      if(allTargets.length>0){
-        // Nearest uncaptured
-        let nearC=null,nearCD=Infinity;
-        for(const c of allTargets){const d=Math.hypot(c.x-u.x,c.y-u.y);if(d<nearCD){nearCD=d;nearC=c;}}
-        target=nearC?{x:nearC.x,y:nearC.y}:(pl.length?{x:pl[0].x,y:pl[0].y}:null);
-      }else if(pl.length>0){target={x:pl[0].x,y:pl[0].y};}
+      const allT=[...neutralCities,...enemyCities];
+      let nearC=null,nearCD=Infinity;
+      for(const c of allT){const d=Math.hypot(c.x-u.x,c.y-u.y);if(d<nearCD){nearCD=d;nearC=c;}}
+      target=nearC?{x:nearC.x,y:nearC.y}:null;
+      if(!target){const ne=nearestFrom(u,pl);if(ne)target={x:ne.unit.x,y:ne.unit.y};}
     }
 
     // Check attack range
     let attackTarget=null;
     for(const e of pl){if(Math.hypot(e.x-u.x,e.y-u.y)<=u.range){attackTarget=e;break;}}
     if(attackTarget){
-      if(now-u.lastAttack>1000){
-        u.lastAttack=now;u.lastAttackAnim=now;
-        const dmg=Math.max(1,u.atk-Math.floor(attackTarget.def/3)+rnd(-3,3));
-        attackTarget.hp-=dmg;if(attackTarget.hp<=0)killUnit(attackTarget);
-      }
+      if(now-u.lastAttack>1000){u.lastAttack=now;u.lastAttackAnim=now;u.attackTarget=attackTarget.id;doAttack(u,attackTarget);}
     }else if(target){
-      const dx=target.x-u.x,dy=target.y-u.y,dist=Math.max(1,Math.sqrt(dx*dx+dy*dy));
-      if(dist>5){
-        const nx=u.x+(dx/dist)*u.speed*dt;
-        const ny=u.y+(dy/dist)*u.speed*dt;
-        if(canMoveTo(nx,ny,u.type)){u.x=nx;u.y=ny;}
-        else{
-          if(canMoveTo(nx,u.y,u.type))u.x=nx;
-          else if(canMoveTo(u.x,ny,u.type))u.y=ny;
-        }
-      }
+      moveToward(u,target.x,target.y,dt);
     }
   }
+}
+
+function nearestFrom(u,arr){
+  let nearest=null,nd=Infinity;
+  for(const e of arr){const d=Math.hypot(e.x-u.x,e.y-u.y);if(d<nd){nd=d;nearest=e;}}
+  return nearest?{unit:nearest,d:nd}:null;
 }
 
 // ════════════════════════════════
@@ -2066,7 +2305,7 @@ window.confirmQuit=()=>{if(confirm('Вийти з гри?'))backToMenu();};
 // ════════════════════════════════
 //  DRAW ENGINE
 // ════════════════════════════════
-function drawAll(){drawMap();drawFrontLine();drawUnits();drawUI();}
+function drawAll(){drawMap();drawFrontLine();drawUnits();drawProjectilesLayer();drawUI();}
 
 function drawMap(){
   if(!mapCtx||!CW||!CH)return;
@@ -2231,25 +2470,47 @@ function detectWaterAreas(){
 function drawFrontLine(){
   if(!frontCtx||!CW||!CH)return;
   frontCtx.clearRect(0,0,CW,CH);
+  if(gamePhase!=='battle')return;
   const bl=G.units?.filter(u=>u.owner==='blue'&&!u._dead);
   const rd=G.units?.filter(u=>u.owner==='red'&&!u._dead);
   if(!bl?.length||!rd?.length)return;
-  const midpoints=[];
-  for(const b of bl){let nearRed=null,minD=Infinity;for(const r of rd){const d=Math.hypot(r.x-b.x,r.y-b.y);if(d<minD){minD=d;nearRed=r;}}if(nearRed)midpoints.push({x:(b.x+nearRed.x)/2,y:(b.y+nearRed.y)/2});}
-  for(const r of rd){let nearBlue=null,minD=Infinity;for(const b of bl){const d=Math.hypot(b.x-r.x,b.y-r.y);if(d<minD){minD=d;nearBlue=b;}}if(nearBlue)midpoints.push({x:(r.x+nearBlue.x)/2,y:(r.y+nearBlue.y)/2});}
-  if(midpoints.length<2)return;
-  midpoints.sort((a,b)=>a.y-b.y);
-  const pts=[midpoints[0]];
-  for(let i=1;i<midpoints.length;i++){const last=pts[pts.length-1];if(Math.hypot(midpoints[i].x-last.x,midpoints[i].y-last.y)>15)pts.push(midpoints[i]);}
-  if(pts.length<2)return;
+
+  // Build front line: for each column of the screen (every 40px) find the midpoint between closest blue & red
   frontCtx.save();frontCtx.translate(camX,camY);frontCtx.scale(camScale,camScale);
-  const lw=2.5/camScale;
+
+  const mapW=mapBgW||2000,mapH=mapBgH||1200;
+  const step=60; // sample every 60 world units vertically
+  const pts=[];
+
+  for(let sy=0;sy<=mapH;sy+=step){
+    // Find closest blue and red to this y-scanline
+    let bx=null,by=null,bd=Infinity;
+    let rx=null,ry=null,rd2=Infinity;
+    for(const u of bl){const d=Math.abs(u.y-sy);if(d<bd){bd=d;bx=u.x;by=u.y;}}
+    for(const u of rd){const d=Math.abs(u.y-sy);if(d<rd2){rd2=d;rx=u.x;ry=u.y;}}
+    if(bx!==null&&rx!==null){pts.push({x:(bx+rx)/2,y:sy});}
+  }
+
+  if(pts.length<2){frontCtx.restore();return;}
+
+  // Smooth & draw
+  const lw=3/camScale;
   frontCtx.lineCap='round';frontCtx.lineJoin='round';
-  frontCtx.shadowColor='rgba(255,200,0,.8)';frontCtx.shadowBlur=12/camScale;
-  frontCtx.strokeStyle='rgba(255,220,0,.5)';frontCtx.lineWidth=lw*2;
+
+  // Outer glow
+  frontCtx.shadowColor='rgba(255,200,50,.9)';
+  frontCtx.shadowBlur=16/camScale;
+  frontCtx.strokeStyle='rgba(255,200,50,.35)';
+  frontCtx.lineWidth=lw*3;
   drawSmoothLine(frontCtx,pts);
-  frontCtx.shadowBlur=0;frontCtx.strokeStyle='rgba(255,240,100,.9)';frontCtx.lineWidth=lw;
+
+  // Core line
+  frontCtx.shadowBlur=6/camScale;
+  frontCtx.strokeStyle='rgba(255,230,80,.95)';
+  frontCtx.lineWidth=lw;
   drawSmoothLine(frontCtx,pts);
+
+  frontCtx.shadowBlur=0;
   frontCtx.restore();
 }
 
@@ -2269,7 +2530,7 @@ function drawUnits(){
   for(const u of G.units){
     if(u._dead)continue;
     const def=UNIT_DEFS[u.type]||UNIT_DEFS.infantry;
-    const r=def.radius,isBlue=u.owner==='blue',isSel=u.id===selectedUnitId;
+    const r=def.radius,isBlue=u.owner==='blue',isSel=selectedUnitIds.has(u.id)||u.id===selectedUnitId;
     const hp=u.hp/u.maxHp,isAtk=now-u.lastAttackAnim<250;
     if(isAtk){unitsCtx.beginPath();unitsCtx.arc(u.x,u.y,r*2.5,0,Math.PI*2);unitsCtx.fillStyle=isBlue?'rgba(59,130,246,.15)':'rgba(239,68,68,.15)';unitsCtx.fill();}
     if(isSel){unitsCtx.beginPath();unitsCtx.arc(u.x,u.y,r+6,0,Math.PI*2);unitsCtx.strokeStyle='rgba(255,255,255,.9)';unitsCtx.lineWidth=2/camScale;unitsCtx.stroke();}
@@ -2293,15 +2554,88 @@ function drawUnits(){
         unitsCtx.strokeStyle=isBlue?'rgba(96,165,250,.6)':'rgba(248,113,113,.6)';
         unitsCtx.lineWidth=1.5/camScale;unitsCtx.setLineDash([4/camScale,4/camScale]);unitsCtx.stroke();unitsCtx.setLineDash([]);}
     }
+    // State badge (small icon below unit)
+    if(isSel&&isBlue){
+      const stateIco={advance:'⚔',hold:'⏸',defend:'🛡',moving:'➤',patrol:'🔄',force_attack:'🎯'}[u.state]||'';
+      if(stateIco){
+        unitsCtx.font=`${r*0.9}px serif`;unitsCtx.textAlign='center';unitsCtx.textBaseline='top';
+        unitsCtx.fillText(stateIco,u.x,u.y+r+4/camScale);
+      }
+    }
+    // Stinger range ring when selected
+    if(isSel&&def.isMissile){
+      unitsCtx.beginPath();unitsCtx.arc(u.x,u.y,u.range,0,Math.PI*2);
+      unitsCtx.strokeStyle='rgba(248,113,113,.25)';unitsCtx.lineWidth=1.5/camScale;
+      unitsCtx.setLineDash([8/camScale,4/camScale]);unitsCtx.stroke();unitsCtx.setLineDash([]);
+    }
   }
   unitsCtx.restore();
 }
 
-// ── UI LAYER: capture rings on cities ──
+function drawProjectilesLayer(){
+  if(!frontCtx||!projectiles.length)return;
+  frontCtx.save();frontCtx.translate(camX,camY);frontCtx.scale(camScale,camScale);
+  const now=performance.now();
+  for(const p of projectiles){
+    const cx=p.ox+(p.tx-p.ox)*p.progress;
+    const cy=p.oy+(p.ty-p.oy)*p.progress;
+    // Trail
+    if(p.trail.length>1){
+      frontCtx.beginPath();frontCtx.moveTo(p.trail[0].x,p.trail[0].y);
+      for(let i=1;i<p.trail.length;i++)frontCtx.lineTo(p.trail[i].x,p.trail[i].y);
+      frontCtx.strokeStyle=p.owner==='blue'?'rgba(96,165,250,.5)':'rgba(248,113,113,.5)';
+      frontCtx.lineWidth=2/camScale;frontCtx.lineCap='round';frontCtx.stroke();
+    }
+    // Missile dot
+    frontCtx.beginPath();frontCtx.arc(cx,cy,5/camScale,0,Math.PI*2);
+    frontCtx.fillStyle=p.owner==='blue'?'#60a5fa':'#f87171';
+    frontCtx.shadowColor=p.owner==='blue'?'rgba(96,165,250,.9)':'rgba(248,113,113,.9)';
+    frontCtx.shadowBlur=10/camScale;frontCtx.fill();
+    frontCtx.shadowBlur=0;
+    // Arrow head direction
+    const ang=Math.atan2(p.ty-p.oy,p.tx-p.ox);
+    frontCtx.save();frontCtx.translate(cx,cy);frontCtx.rotate(ang);
+    frontCtx.fillStyle='#fff';
+    frontCtx.font=`${12/camScale}px serif`;frontCtx.textAlign='center';frontCtx.textBaseline='middle';
+    frontCtx.fillText('🚀',0,0);
+    frontCtx.restore();
+  }
+  frontCtx.restore();
+}
+
+// ── UI LAYER: move order markers ──
 function drawUI(){
   if(!uiCtx||!CW||!CH)return;
   uiCtx.clearRect(0,0,CW,CH);
-  // Capture progress arcs drawn on units canvas already via drawMap
+  if(!G.units)return;
+  uiCtx.save();uiCtx.translate(camX,camY);uiCtx.scale(camScale,camScale);
+  // Draw move targets for selected units
+  G.units.filter(u=>selectedUnitIds.has(u.id)&&u.moveTarget).forEach(u=>{
+    const t=u.moveTarget;
+    uiCtx.beginPath();uiCtx.arc(t.x,t.y,8/camScale,0,Math.PI*2);
+    uiCtx.strokeStyle='rgba(34,197,94,.7)';uiCtx.lineWidth=1.5/camScale;uiCtx.stroke();
+    uiCtx.beginPath();uiCtx.moveTo(u.x,u.y);uiCtx.lineTo(t.x,t.y);
+    uiCtx.strokeStyle='rgba(34,197,94,.25)';uiCtx.lineWidth=1/camScale;
+    uiCtx.setLineDash([6/camScale,4/camScale]);uiCtx.stroke();uiCtx.setLineDash([]);
+  });
+  // Patrol paths
+  G.units.filter(u=>u.state==='patrol'&&u.patrolA&&u.patrolB&&selectedUnitIds.has(u.id)).forEach(u=>{
+    uiCtx.beginPath();uiCtx.moveTo(u.patrolA.x,u.patrolA.y);uiCtx.lineTo(u.patrolB.x,u.patrolB.y);
+    uiCtx.strokeStyle='rgba(168,85,247,.5)';uiCtx.lineWidth=1.5/camScale;
+    uiCtx.setLineDash([8/camScale,4/camScale]);uiCtx.stroke();uiCtx.setLineDash([]);
+    [u.patrolA,u.patrolB].forEach(pt=>{
+      uiCtx.beginPath();uiCtx.arc(pt.x,pt.y,7/camScale,0,Math.PI*2);
+      uiCtx.fillStyle='rgba(168,85,247,.3)';uiCtx.fill();
+      uiCtx.strokeStyle='rgba(168,85,247,.8)';uiCtx.lineWidth=1.5/camScale;uiCtx.stroke();
+    });
+  });
+  // Defend zone
+  G.units.filter(u=>u.state==='defend'&&u.defendX!==undefined&&selectedUnitIds.has(u.id)).forEach(u=>{
+    uiCtx.beginPath();uiCtx.arc(u.defendX,u.defendY,u.range*.8,0,Math.PI*2);
+    uiCtx.strokeStyle='rgba(59,130,246,.3)';uiCtx.lineWidth=1.5/camScale;
+    uiCtx.setLineDash([5/camScale,5/camScale]);uiCtx.stroke();uiCtx.setLineDash([]);
+  });
+  uiCtx.restore();
 }
 
 // ════════════════════════════════
@@ -2332,6 +2666,8 @@ function showSelInfo(u){
   document.getElementById('siAtk').textContent=u.atk;
   document.getElementById('siDef').textContent=u.def;
   document.getElementById('siSpd').textContent=u.speed;
+  const stateLabels={advance:'⚔ АТК',hold:'⏸ СТОП',defend:'🛡 ОБ',moving:'➤ РУХ',patrol:'🔄 ПАТ',force_attack:'🎯 ЦІЛЬ',idle:'— СТІЙ'};
+  const modeEl=document.getElementById('siMode');if(modeEl)modeEl.textContent=stateLabels[u.state]||u.state;
 }
 
 function addLog(msg,type='info'){
