@@ -429,25 +429,46 @@ input,select,textarea{user-select:text!important;-webkit-user-select:text!import
       </div>
       <!-- EDITOR -->
       <div class="admin-section" id="asec-editor">
-        <div class="admin-card" style="height:calc(100vh - 160px);">
-          <div class="admin-card-title" style="margin-bottom:10px">✏️ РЕДАКТОР КАРТИ</div>
-          <div class="map-editor-wrap" style="height:calc(100% - 40px);">
-            <div class="map-editor-canvas-wrap">
+        <div class="admin-card" style="height:calc(100vh - 160px);display:flex;flex-direction:column;">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-shrink:0">
+            <div class="admin-card-title" style="margin-bottom:0">✏️ РЕДАКТОР КАРТИ</div>
+            <span style="font-size:10px;color:var(--dim)">Малюйте терен, розміщуйте бази та початкові юніти</span>
+          </div>
+          <div class="map-editor-wrap" style="flex:1;min-height:0;">
+            <div class="map-editor-canvas-wrap" style="position:relative;">
               <canvas id="adminMapCanvas"></canvas>
+              <!-- Base/unit markers rendered over canvas -->
+              <div id="editorMarkers" style="position:absolute;top:0;left:0;pointer-events:none;"></div>
             </div>
-            <div class="map-editor-tools">
+            <div class="map-editor-tools" style="overflow-y:auto;">
               <div class="sp-label">ІНСТРУМЕНТ</div>
               <button class="tool-btn active" onclick="setEditorTool('draw')" id="tool-draw">✏️ Малювати</button>
               <button class="tool-btn" onclick="setEditorTool('erase')" id="tool-erase">🧹 Стерти</button>
-              <button class="tool-btn" onclick="setEditorTool('line')" id="tool-line">📏 Лінія</button>
-              <div class="sp-label" style="margin-top:10px">КОЛІР</div>
+              <div class="sp-label" style="margin-top:8px">РОЗМІЩЕННЯ</div>
+              <button class="tool-btn" onclick="setEditorTool('base_blue')" id="tool-base_blue">🏠 База СИНІХ</button>
+              <button class="tool-btn" onclick="setEditorTool('base_red')" id="tool-base_red">🏚️ База ЧЕРВОНИХ</button>
+              <div class="sp-label" style="margin-top:8px">ПОЧАТКОВІ ЮНІТИ</div>
+              <button class="tool-btn" onclick="setEditorTool('unit_blue')" id="tool-unit_blue">🔵 Юніт СИНІХ</button>
+              <button class="tool-btn" onclick="setEditorTool('unit_red')" id="tool-unit_red">🔴 Юніт ЧЕРВОНИХ</button>
+              <select id="editorUnitType" style="width:100%;margin-top:4px;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.1);color:#fff;padding:5px 8px;border-radius:5px;font-size:11px;">
+                <option value="infantry">👥 Піхота</option>
+                <option value="apc">🚛 БТР</option>
+                <option value="tank">🛡️ Танк</option>
+                <option value="heli">🚁 Гелікоптер</option>
+                <option value="artillery">💥 Артилерія</option>
+              </select>
+              <div class="sp-label" style="margin-top:8px">КОЛІР ПЕНЗЛЯ</div>
               <div class="color-row" id="colorSwatches"></div>
-              <div class="sp-label" style="margin-top:10px">РОЗМІР</div>
+              <div class="sp-label" style="margin-top:8px">РОЗМІР</div>
               <input type="range" id="brushSize" min="2" max="40" value="8" style="width:100%">
-              <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
-                <button class="tool-btn" onclick="clearEditorCanvas()">🗑️ Очистити</button>
-                <button class="btn-gold" onclick="saveEditorAsMap()" style="width:100%">💾 Зберегти карту</button>
+              <div style="margin-top:10px;display:flex;flex-direction:column;gap:5px;">
+                <button class="tool-btn" onclick="clearEditorCanvas()">🗑️ Очистити все</button>
+                <button class="tool-btn" onclick="clearEditorMarkers()">🚫 Видалити маркери</button>
+                <button class="btn-gold" onclick="saveEditorAsMap()" style="width:100%;margin-top:4px">💾 Зберегти карту</button>
               </div>
+              <!-- Marker list -->
+              <div class="sp-label" style="margin-top:10px">РОЗМІЩЕНО</div>
+              <div id="editorMarkerList" style="font-size:10px;color:var(--dim);max-height:80px;overflow-y:auto;"></div>
             </div>
           </div>
         </div>
@@ -593,7 +614,15 @@ function setLdText(t){const el=document.getElementById('ldText');if(el)el.textCo
 
 window.addEventListener('DOMContentLoaded',async()=>{
   setLdText('Авторизація...');
-  await signInAnonymously(auth).catch(()=>{});
+  // Firebase persists auth state - only sign in anonymously if no user
+  const currentUser=auth.currentUser;
+  if(!currentUser){
+    // Wait a moment for Firebase to restore persisted session
+    await new Promise(r=>setTimeout(r,500));
+    if(!auth.currentUser){
+      await signInAnonymously(auth).catch(()=>{});
+    }
+  }
 });
 
 onAuthStateChanged(auth,async user=>{
@@ -791,6 +820,7 @@ window.adminDeleteMap=async(i)=>{
 // ════════════════════════════════
 let editorCtx,editorTool='draw',editorColor='#22c55e',editorSize=8;
 let editorDrawing=false,editorLastX=0,editorLastY=0;
+let editorMarkers=[]; // {type:'base'|'unit', team:'blue'|'red', unitType, x, y, px, py}
 const EDITOR_COLORS=['#22c55e','#3b82f6','#ef4444','#f59e0b','#8b5cf6','#06b6d4','#ffffff','#1a2810','#5c3d1a','#1e3a5f','#000000'];
 
 window.adminNav=section=>{
@@ -809,24 +839,18 @@ function initEditor(){
   const wrap=cv.parentElement;
   cv.width=wrap.clientWidth||800;cv.height=wrap.clientHeight||500;
   editorCtx=cv.getContext('2d');
-  editorCtx.fillStyle='#1a2810';editorCtx.fillRect(0,0,cv.width,cv.height);
-  // Draw grid
-  editorCtx.strokeStyle='rgba(255,255,255,.05)';editorCtx.lineWidth=1;
-  for(let x=0;x<cv.width;x+=40){editorCtx.beginPath();editorCtx.moveTo(x,0);editorCtx.lineTo(x,cv.height);editorCtx.stroke();}
-  for(let y=0;y<cv.height;y+=40){editorCtx.beginPath();editorCtx.moveTo(0,y);editorCtx.lineTo(cv.width,y);editorCtx.stroke();}
-  // Divider
-  editorCtx.strokeStyle='rgba(255,255,255,.15)';editorCtx.lineWidth=2;editorCtx.setLineDash([8,8]);
-  editorCtx.beginPath();editorCtx.moveTo(cv.width/2,0);editorCtx.lineTo(cv.width/2,cv.height);editorCtx.stroke();
-  editorCtx.setLineDash([]);
-  // Zones
-  editorCtx.fillStyle='rgba(59,130,246,.08)';editorCtx.fillRect(0,0,cv.width/2,cv.height);
-  editorCtx.fillStyle='rgba(239,68,68,.08)';editorCtx.fillRect(cv.width/2,0,cv.width/2,cv.height);
+  drawEditorBase();
 
   // Build color swatches
   const sw=document.getElementById('colorSwatches');
-  sw.innerHTML=EDITOR_COLORS.map(c=>`<div class="color-swatch ${c===editorColor?'active':''}" style="background:${c}" onclick="setEditorColor('${c}')"></div>`).join('');
+  if(sw)sw.innerHTML=EDITOR_COLORS.map(c=>`<div class="color-swatch ${c===editorColor?'active':''}" style="background:${c}" onclick="setEditorColor('${c}')"></div>`).join('');
 
-  cv.onmousedown=e=>{editorDrawing=true;editorLastX=e.offsetX;editorLastY=e.offsetY;};
+  cv.onmousedown=e=>{
+    if(editorTool.startsWith('base_')||editorTool.startsWith('unit_')){
+      placeEditorMarker(e.offsetX,e.offsetY);return;
+    }
+    editorDrawing=true;editorLastX=e.offsetX;editorLastY=e.offsetY;
+  };
   cv.onmousemove=e=>{
     if(!editorDrawing)return;
     editorCtx.strokeStyle=editorTool==='erase'?'#1a2810':editorColor;
@@ -837,8 +861,69 @@ function initEditor(){
     editorLastX=e.offsetX;editorLastY=e.offsetY;
   };
   cv.onmouseup=cv.onmouseleave=()=>editorDrawing=false;
-  document.getElementById('brushSize').oninput=e=>editorSize=+e.target.value;
+  const bs=document.getElementById('brushSize');
+  if(bs)bs.oninput=e=>editorSize=+e.target.value;
+  renderEditorMarkers();
 }
+
+function drawEditorBase(){
+  const cv=document.getElementById('adminMapCanvas');if(!editorCtx||!cv)return;
+  editorCtx.fillStyle='#1a2810';editorCtx.fillRect(0,0,cv.width,cv.height);
+  editorCtx.strokeStyle='rgba(255,255,255,.04)';editorCtx.lineWidth=1;
+  for(let x=0;x<cv.width;x+=50){editorCtx.beginPath();editorCtx.moveTo(x,0);editorCtx.lineTo(x,cv.height);editorCtx.stroke();}
+  for(let y=0;y<cv.height;y+=50){editorCtx.beginPath();editorCtx.moveTo(0,y);editorCtx.lineTo(cv.width,y);editorCtx.stroke();}
+  editorCtx.strokeStyle='rgba(255,255,255,.18)';editorCtx.lineWidth=2;editorCtx.setLineDash([10,8]);
+  editorCtx.beginPath();editorCtx.moveTo(cv.width/2,0);editorCtx.lineTo(cv.width/2,cv.height);editorCtx.stroke();editorCtx.setLineDash([]);
+  editorCtx.fillStyle='rgba(59,130,246,.07)';editorCtx.fillRect(0,0,cv.width/2,cv.height);
+  editorCtx.fillStyle='rgba(239,68,68,.07)';editorCtx.fillRect(cv.width/2,0,cv.width/2,cv.height);
+  editorCtx.font='bold 32px Oswald';editorCtx.textAlign='center';editorCtx.textBaseline='middle';
+  editorCtx.fillStyle='rgba(59,130,246,.15)';editorCtx.fillText('СИНІ',cv.width*.25,cv.height/2);
+  editorCtx.fillStyle='rgba(239,68,68,.15)';editorCtx.fillText('ЧЕРВОНІ',cv.width*.75,cv.height/2);
+}
+
+function placeEditorMarker(px,py){
+  const cv=document.getElementById('adminMapCanvas');if(!cv)return;
+  const isBase=editorTool.startsWith('base_');
+  const team=editorTool.split('_')[1]; // 'blue' or 'red'
+  const unitType=document.getElementById('editorUnitType')?.value||'infantry';
+  // Convert pixel to world coords (normalized 0-1)
+  const nx=px/cv.width, ny=py/cv.height;
+  // Remove existing base of same team if placing base
+  if(isBase){
+    editorMarkers=editorMarkers.filter(m=>!(m.type==='base'&&m.team===team));
+  }
+  editorMarkers.push({type:isBase?'base':'unit',team,unitType:isBase?null:unitType,nx,ny,px,py});
+  renderEditorMarkers();
+  updateEditorMarkerList();
+}
+
+function renderEditorMarkers(){
+  const wrap=document.getElementById('editorMarkers');
+  const cv=document.getElementById('adminMapCanvas');
+  if(!wrap||!cv)return;
+  wrap.innerHTML=editorMarkers.map((m,i)=>{
+    const emoji=m.type==='base'?(m.team==='blue'?'🏠':'🏚️'):(UNIT_DEFS[m.unitType]?.emoji||'⚪');
+    const color=m.team==='blue'?'#60a5fa':'#f87171';
+    return`<div style="position:absolute;left:${m.px-14}px;top:${m.py-14}px;font-size:20px;cursor:pointer;filter:drop-shadow(0 0 4px ${color})" title="${m.type==='base'?'База':'Юніт'} ${m.team}" onclick="removeEditorMarker(${i})">${emoji}</div>`;
+  }).join('');
+  // Re-enable pointer events for markers
+  wrap.style.pointerEvents='none';
+  wrap.querySelectorAll('div').forEach(d=>d.style.pointerEvents='auto');
+}
+
+function updateEditorMarkerList(){
+  const el=document.getElementById('editorMarkerList');if(!el)return;
+  if(!editorMarkers.length){el.textContent='Немає маркерів';return;}
+  el.innerHTML=editorMarkers.map((m,i)=>{
+    const label=m.type==='base'?`База ${m.team}`:`${UNIT_DEFS[m.unitType]?.name||m.unitType} (${m.team})`;
+    return`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <span>${label}</span><span style="cursor:pointer;color:#f87171" onclick="removeEditorMarker(${i})">✕</span>
+    </div>`;
+  }).join('');
+}
+
+window.removeEditorMarker=i=>{editorMarkers.splice(i,1);renderEditorMarkers();updateEditorMarkerList();};
+window.clearEditorMarkers=()=>{editorMarkers=[];renderEditorMarkers();updateEditorMarkerList();toast('🗑️ Маркери видалено');};
 
 window.setEditorTool=t=>{
   editorTool=t;
@@ -851,22 +936,31 @@ window.setEditorColor=c=>{
 };
 window.clearEditorCanvas=()=>{
   if(!editorCtx)return;
-  const cv=document.getElementById('adminMapCanvas');
-  editorCtx.fillStyle='#1a2810';editorCtx.fillRect(0,0,cv.width,cv.height);
+  drawEditorBase();
+  toast('🗑️ Полотно очищено');
 };
+
 window.saveEditorAsMap=async()=>{
   const cv=document.getElementById('adminMapCanvas');if(!cv)return;
+  const name=prompt('Назва карти:','Моя карта');
+  if(!name)return;
   const dataUrl=cv.toDataURL('image/jpeg',.9);
-  const name='Редактор_'+new Date().toLocaleDateString('uk-UA');
   const st=document.getElementById('adminMapUploadStatus');
   st.textContent='⟳ Збереження...';
   try{
     const url=await uploadCloudinary(dataUrl,'editor_map_'+Date.now());
     const date=new Date().toLocaleDateString('uk-UA');
-    globalMaps.push({url,name,date});
+    // Build spawn data from markers
+    const spawns={
+      blueBase:editorMarkers.find(m=>m.type==='base'&&m.team==='blue')||null,
+      redBase:editorMarkers.find(m=>m.type==='base'&&m.team==='red')||null,
+      units:editorMarkers.filter(m=>m.type==='unit').map(m=>({team:m.team,unitType:m.unitType,nx:m.nx,ny:m.ny})),
+    };
+    globalMaps.push({url,name,date,spawns});
     await setDoc(doc(db,'appData','globalMaps'),{maps:globalMaps});
-    st.textContent='✅ Карта з редактора збережена!';
-    toast('✅ Карта збережена для всіх!');
+    st.textContent='✅ Карта збережена!';
+    toast('✅ "'+name+'" збережена для всіх!');
+    editorMarkers=[];
     adminNav('maps');
   }catch(e){st.textContent='❌ '+e.message;}
 };
@@ -1093,9 +1187,10 @@ function hideDcBanner(){
 // ════════════════════════════════
 window.startVsAI=()=>{
   isAI=true;myRole='blue';lobbyId='ai_'+Date.now();
-  const mapUrl=globalMaps[0]?.url||null;
+  const mapMeta=globalMaps[0]||null;
+  const mapUrl=mapMeta?.url||null;
   mapBg=null;mapBgW=0;mapBgH=0;
-  initGameState();
+  initGameState(mapMeta);
   showScreen('screen-game');
   setTimeout(()=>{resizeCanvases();if(mapUrl)loadMapFromUrl(mapUrl);},50);
   startGameLoop();
@@ -1106,12 +1201,12 @@ window.startVsAI=()=>{
 // ════════════════════════════════
 function startGame(code,role,lobbyData){
   isAI=false;myRole=role;lobbyId=code;
-  // Get current map URL before initGameState resets things
   const mapUrl=lobbyData?.mapUrl||globalMaps[0]?.url||null;
+  // Find spawns from globalMaps matching url
+  const mapMeta=globalMaps.find(m=>m.url===mapUrl);
   mapBg=null;mapBgW=0;mapBgH=0;
-  initGameState();
+  initGameState(mapMeta);
   showScreen('screen-game');
-  // Resize canvases after screen shown
   setTimeout(()=>{resizeCanvases();if(mapUrl)loadMapFromUrl(mapUrl);},50);
   startGameLoop();
   listenGameState(code);
@@ -1119,13 +1214,42 @@ function startGame(code,role,lobbyData){
   monitorOpponentPresence(code);
 }
 
-function initGameState(){
+function initGameState(mapData){
   G={units:[],funds:{blue:2000,red:2000},casualties:{blue:0,red:0},phase:'placement',wave:1,startTime:Date.now(),nextId:1};
   gamePhase='placement';gameOver=false;gameTimer=0;
   if(timerInterval)clearInterval(timerInterval);
   timerInterval=setInterval(tickTimer,1000);
   document.getElementById('hudPhase').textContent='РОЗМІЩЕННЯ';
   document.getElementById('placementHint').classList.add('vis');
+  // Apply spawn data from map
+  if(mapData?.spawns){
+    setTimeout(()=>applyMapSpawns(mapData.spawns),200);
+  }
+  updateHUD();
+}
+
+function applyMapSpawns(spawns){
+  if(!spawns)return;
+  const mw=mapBgW||2000,mh=mapBgH||1200;
+  // Place initial units
+  (spawns.units||[]).forEach(s=>{
+    const def=UNIT_DEFS[s.unitType]||UNIT_DEFS.infantry;
+    G.units.push({
+      id:G.nextId++,type:s.unitType,owner:s.team,
+      x:s.nx*mw,y:s.ny*mh,tx:s.nx*mw,ty:s.ny*mh,
+      vx:0,vy:0,hp:def.hp,maxHp:def.hp,atk:def.atk,def:def.def,
+      speed:def.speed,range:def.range,radius:def.radius,
+      state:'idle',attackTarget:null,lastAttack:0,lastAttackAnim:0,
+      isSpawn:true
+    });
+  });
+  // Draw base markers on map overlay
+  if(spawns.blueBase||spawns.redBase){
+    G.bases={
+      blue:spawns.blueBase?{x:spawns.blueBase.nx*mw,y:spawns.blueBase.ny*mh}:null,
+      red:spawns.redBase?{x:spawns.redBase.nx*mw,y:spawns.redBase.ny*mh}:null,
+    };
+  }
   updateHUD();
 }
 
@@ -1242,10 +1366,16 @@ function initGameCanvases(){
 
 function resizeCanvases(){
   const body=document.getElementById('gameBody');if(!body)return;
-  CW=body.clientWidth;CH=body.clientHeight;
+  const panel=document.getElementById('sidePanel');
+  const panelW=(panel&&panel.offsetParent!==null)?panel.offsetWidth:0;
+  CW=body.clientWidth-panelW;CH=body.clientHeight;
+  CW=Math.max(1,CW);CH=Math.max(1,CH);
   ['mapCanvas','unitsCanvas','frontCanvas','uiCanvas','interCanvas'].forEach(id=>{
-    const cv=document.getElementById(id);cv.width=CW;cv.height=CH;
+    const cv=document.getElementById(id);if(!cv)return;
+    cv.width=CW;cv.height=CH;
+    cv.style.width=CW+'px';cv.style.height=CH+'px';
   });
+  if(mapBgW>0)centerMap();
   drawAll();
 }
 
@@ -1507,6 +1637,21 @@ function drawMap(){
     mapCtx.strokeStyle='rgba(34,197,94,.35)';mapCtx.lineWidth=3;mapCtx.setLineDash([10,8]);
     mapCtx.strokeRect(zx+2,2,w/2-4,h-4);mapCtx.setLineDash([]);
   }
+  // Draw bases
+  if(G.bases){
+    ['blue','red'].forEach(team=>{
+      const base=G.bases[team];if(!base)return;
+      const color=team==='blue'?'rgba(59,130,246,.8)':'rgba(239,68,68,.8)';
+      const emoji=team==='blue'?'🏠':'🏚️';
+      // Base circle
+      mapCtx.beginPath();mapCtx.arc(base.x,base.y,20,0,Math.PI*2);
+      mapCtx.fillStyle=team==='blue'?'rgba(59,130,246,.15)':'rgba(239,68,68,.15)';mapCtx.fill();
+      mapCtx.strokeStyle=color;mapCtx.lineWidth=2.5;mapCtx.stroke();
+      // Emoji
+      mapCtx.font='22px serif';mapCtx.textAlign='center';mapCtx.textBaseline='middle';
+      mapCtx.fillText(emoji,base.x,base.y);
+    });
+  }
   mapCtx.restore();
 }
 
@@ -1516,22 +1661,67 @@ function drawFrontLine(){
   const bl=G.units?.filter(u=>u.owner==='blue'&&!u._dead);
   const rd=G.units?.filter(u=>u.owner==='red'&&!u._dead);
   if(!bl?.length||!rd?.length)return;
-  const mapH=mapBgH||1200;
-  const pts=[];
-  for(let i=0;i<=16;i++){
-    const y=(mapH/16)*i,band=mapH/6;
-    const bn=bl.filter(u=>Math.abs(u.y-y)<band),rn=rd.filter(u=>Math.abs(u.y-y)<band);
-    if(!bn.length||!rn.length)continue;
-    pts.push({x:(bn.reduce((s,u)=>s+u.x,0)/bn.length+rn.reduce((s,u)=>s+u.x,0)/rn.length)/2,y});
+
+  // For each blue unit find nearest red — midpoint is a front point
+  const midpoints=[];
+  for(const b of bl){
+    let nearRed=null,minD=Infinity;
+    for(const r of rd){const d=Math.hypot(r.x-b.x,r.y-b.y);if(d<minD){minD=d;nearRed=r;}}
+    if(nearRed)midpoints.push({x:(b.x+nearRed.x)/2,y:(b.y+nearRed.y)/2});
+  }
+  for(const r of rd){
+    let nearBlue=null,minD=Infinity;
+    for(const b of bl){const d=Math.hypot(b.x-r.x,b.y-r.y);if(d<minD){minD=d;nearBlue=b;}}
+    if(nearBlue)midpoints.push({x:(r.x+nearBlue.x)/2,y:(r.y+nearBlue.y)/2});
+  }
+  if(midpoints.length<2)return;
+
+  // Sort by Y for a vertical front line sweep
+  midpoints.sort((a,b)=>a.y-b.y);
+
+  // Deduplicate close points
+  const pts=[midpoints[0]];
+  for(let i=1;i<midpoints.length;i++){
+    const last=pts[pts.length-1];
+    if(Math.hypot(midpoints[i].x-last.x,midpoints[i].y-last.y)>15)pts.push(midpoints[i]);
   }
   if(pts.length<2)return;
+
   frontCtx.save();frontCtx.translate(camX,camY);frontCtx.scale(camScale,camScale);
-  frontCtx.beginPath();frontCtx.moveTo(pts[0].x,pts[0].y);
-  for(let i=1;i<pts.length-1;i++){const mx=(pts[i].x+pts[i+1].x)/2,my=(pts[i].y+pts[i+1].y)/2;frontCtx.quadraticCurveTo(pts[i].x,pts[i].y,mx,my);}
-  frontCtx.lineTo(pts[pts.length-1].x,pts[pts.length-1].y);
-  frontCtx.shadowColor='rgba(255,220,0,.7)';frontCtx.shadowBlur=10/camScale;
-  frontCtx.strokeStyle='rgba(255,230,60,.7)';frontCtx.lineWidth=2.5/camScale;frontCtx.stroke();
-  frontCtx.shadowBlur=0;frontCtx.restore();
+
+  // Draw with glow
+  const lw=2.5/camScale;
+  frontCtx.lineCap='round';frontCtx.lineJoin='round';
+
+  // Outer glow
+  frontCtx.shadowColor='rgba(255,200,0,.8)';
+  frontCtx.shadowBlur=12/camScale;
+  frontCtx.strokeStyle='rgba(255,220,0,.5)';
+  frontCtx.lineWidth=lw*2;
+  drawSmoothLine(frontCtx,pts);
+
+  // Inner bright line
+  frontCtx.shadowBlur=0;
+  frontCtx.strokeStyle='rgba(255,240,100,.9)';
+  frontCtx.lineWidth=lw;
+  drawSmoothLine(frontCtx,pts);
+
+  frontCtx.restore();
+}
+
+function drawSmoothLine(ctx,pts){
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x,pts[0].y);
+  if(pts.length===2){ctx.lineTo(pts[1].x,pts[1].y);}
+  else{
+    for(let i=0;i<pts.length-1;i++){
+      const mx=(pts[i].x+pts[i+1].x)/2,my=(pts[i].y+pts[i+1].y)/2;
+      if(i===0)ctx.lineTo(mx,my);
+      else ctx.quadraticCurveTo(pts[i].x,pts[i].y,mx,my);
+    }
+    ctx.lineTo(pts[pts.length-1].x,pts[pts.length-1].y);
+  }
+  ctx.stroke();
 }
 
 function drawUnits(){
