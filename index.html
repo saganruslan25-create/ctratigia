@@ -1576,10 +1576,23 @@ function onMD(e){const r=rel(e.clientX,e.clientY);if(e.button===1){e.preventDefa
 function onMM(e){const r=rel(e.clientX,e.clientY);if(e.buttons===4){camX+=r.x-dragLX;camY+=r.y-dragLY;clampCam();dragLX=r.x;dragLY=r.y;drawAll();return;}if(e.buttons===1){const dx=r.x-dragLX,dy=r.y-dragLY;if(!isDragging&&Math.abs(dx)+Math.abs(dy)>5)isDragging=true;if(isDragging){camX+=r.x-dragLX;camY+=r.y-dragLY;clampCam();drawAll();}}dragLX=r.x;dragLY=r.y;}
 function onMU(e){if(isDragging){isDragging=false;return;}const r=rel(e.clientX,e.clientY);if(e.button===0)handleClick(r.x,r.y,false,e.shiftKey);}
 function onKey(e){
+  if(!e||!e.key)return;
   if(e.code==='Escape'){placingType=null;document.getElementById('placementHint').classList.remove('vis');document.querySelectorAll('.sp-unit-btn').forEach(b=>b.classList.remove('active'));}
   if(e.code==='Space'){e.preventDefault();if(gamePhase==='placement')startBattle();}
-  const isZ=e.key.toLowerCase()==='z'||e.key==='я'||e.code==='KeyZ';
-  if((e.ctrlKey||e.metaKey)&&isZ&&gamePhase==='placement'){e.preventDefault();const mine=G.units.filter(u=>u.owner===myRole&&!u._dead);if(mine.length){const last=mine[mine.length-1];const def=UNIT_DEFS[last.type];G.funds[myRole]+=(def?.cost||0);G.units=G.units.filter(u=>u.id!==last.id);addLog('↩ Скасовано: '+def?.name,'warn');toast('↩ '+(def?.name||'юніт'));syncGameState();updateHUD();drawAll();}}
+  const isZ=(e.key&&e.key.toLowerCase()==='z')||e.key==='я'||e.code==='KeyZ';
+  if((e.ctrlKey||e.metaKey)&&isZ&&gamePhase==='placement'){
+    e.preventDefault();
+    const mine=G.units&&G.units.filter(u=>u.owner===myRole&&!u._dead);
+    if(mine&&mine.length){
+      const last=mine[mine.length-1];
+      const def=UNIT_DEFS[last.type];
+      G.funds[myRole]+=(def?.cost||0);
+      G.units=G.units.filter(u=>u.id!==last.id);
+      addLog('↩ Скасовано: '+def?.name,'warn');
+      toast('↩ '+(def?.name||'юніт'));
+      syncGameState();updateHUD();drawAll();
+    }
+  }
 }
 function handleClick(sx,sy,isRight,isShift=false){
   if(!G.units)return;const{wx,wy}=s2w(sx,sy);
