@@ -1171,16 +1171,24 @@ function loadTerrainFromMap(mapEntry){
 // So editorSaveMap converts markers to image-relative BEFORE saving
 // And game just does worldX = nx * mapBgW  ← now correct
 function applyMapData(){
-  if(!mapBgW||!mapBgH)return;const mw=mapBgW,mh=mapBgH;
+  if(!mapBgW||!mapBgH)return;
+  if(!G||typeof G!=='object')return;
+  const mw=mapBgW,mh=mapBgH;
   if(G._pendingCities?.length>0){
     G.cities=G._pendingCities.map((c,i)=>({id:'city_'+i,name:c.name||('Місто '+(i+1)),x:c.nx*mw,y:c.ny*mh,nx:c.nx,ny:c.ny,owner:'neutral',income:CITY_INCOME,hp:300,maxHp:300,captureProgress:{blue:0,red:0}}));
     G._pendingCities=null;addLog('🏙️ '+G.cities.length+' міст','info');
-  }else if(!G.cities.length){G.cities=genDefaultCities(mw,mh);addLog('🏙️ '+G.cities.length+' міст (авто)','info');}
+  }else if(!G.cities||!G.cities.length){
+    G.cities=genDefaultCities(mw,mh);
+    addLog('🏙️ '+G.cities.length+' міст (авто)','info');
+  }
   if(G._pendingSpawns){
     const s=G._pendingSpawns;
     if(s.blueBase)G.bases={...G.bases||{},blue:{x:s.blueBase.nx*mw,y:s.blueBase.ny*mh}};
     if(s.redBase)G.bases={...G.bases||{},red:{x:s.redBase.nx*mw,y:s.redBase.ny*mh}};
-    (s.units||[]).forEach(u=>{const def=UNIT_DEFS[u.unitType]||UNIT_DEFS.infantry;G.units.push(mkUnit(G.nextId++,u.unitType,u.team,u.nx*mw,u.ny*mh));});
+    (s.units||[]).forEach(u=>{
+      const def=UNIT_DEFS[u.unitType]||UNIT_DEFS.infantry;
+      G.units.push(mkUnit(G.nextId++,u.unitType,u.team,u.nx*mw,u.ny*mh));
+    });
     G._pendingSpawns=null;
   }
   if(!G.bases)G.bases={blue:{x:mw*.12,y:mh*.5},red:{x:mw*.88,y:mh*.5}};
