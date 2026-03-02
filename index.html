@@ -676,7 +676,9 @@ let eHistory=[],eBg=null,eBgX=0,eBgY=0,eBgW=0,eBgH=0;
 let eMarkers=[],eMapName='Нова карта',eMapIdx=-1;
 // NEW: editor uses CSS transform zoom instead of camera math
 let eScale=1,ePanX=0,ePanY=0,ePanning=false,ePanLX=0,ePanLY=0;
-let eTerrainCtx=null; // separate offscreen canvas for terrain strokes only
+let eTerrainCtx=null; // visual-only terrain canvas (for display)
+let eTerrainStrokes=[]; // editor stroke list [{type,color,pts,size,isErase}]
+let eCurrentStroke=null; // stroke being drawn right now
 let editorEditingMapIdx=-1,editorMarkers=[],editorCtx=null,editorTool='draw',editorColor='#22c55e',editorSize=8,editorDrawing=false,editorLastX=0,editorLastY=0;
 let inputMode='move',patrolPoint1=null,selectedUnitIds=new Set(),projectiles=[],missileTargetMode=false;
 // G_terrain replaced by pixel-based system (G_terrainPixels)
@@ -708,32 +710,39 @@ const ECOLORS_TERRAIN={
   draw:   '#22c55e',
   erase:  null
 };
-// Terrain pixel map (sampled from editor canvas, used for fast game-time lookup)
-let G_terrainPixels=null,G_terrainW=0,G_terrainH=0;
+// ── TERRAIN STROKE SYSTEM ──────────────────────────────────────
+// Terrain stored as array of strokes with NORMALIZED coords (0-1)
+// Reliable across any resolution — no pixel conversion issues
+// ────────────────────────────────────────────────────────────────
+let G_terrainStrokes=[]; // [{type,color,pts:[{nx,ny}],size,isErase}]
+
+// Convert world coords → terrain type by testing against stored strokes
 function sampleTerrainAt(wx,wy){
-  if(!G_terrainPixels||!G_terrainW||!G_terrainH)return'none';
   const mw=mapBgW||2000,mh=mapBgH||1200;
-  const px=Math.round(wx/mw*G_terrainW),py=Math.round(wy/mh*G_terrainH);
-  if(px<0||py<0||px>=G_terrainW||py>=G_terrainH)return'none';
-  const i=(py*G_terrainW+px)*4;
-  const r=G_terrainPixels[i],g=G_terrainPixels[i+1],b=G_terrainPixels[i+2],a=G_terrainPixels[i+3];
-  if(a<30)return'none';
-  // Match by color distance
-  let best='none',bestD=60;
-  for(const[name,c]of Object.entries(TERRAIN_COLORS)){
-    const d=Math.sqrt((r-c.r)**2+(g-c.g)**2+(b-c.b)**2);
-    if(d<bestD){bestD=d;best=name;}
+  const nx=wx/mw,ny=wy/mh;
+  // Walk strokes in REVERSE (last drawn = highest priority)
+  for(let i=G_terrainStrokes.length-1;i>=0;i--){
+    const s=G_terrainStrokes[i];
+    const r=s.size/Math.max(mw,mh); // normalized radius
+    for(let j=1;j<s.pts.length;j++){
+      const ax=s.pts[j-1].nx,ay=s.pts[j-1].ny;
+      const bx=s.pts[j].nx,by=s.pts[j].ny;
+      if(distPointSegNorm(nx,ny,ax,ay,bx,by)<r){
+        return s.isErase?'none':s.type;
+      }
+    }
+    if(s.pts.length===1){
+      if(Math.hypot(nx-s.pts[0].nx,ny-s.pts[0].ny)<r)
+        return s.isErase?'none':s.type;
+    }
   }
-  return best;
+  return'none';
 }
-function buildTerrainPixelMap(terrainCanvas){
-  if(!terrainCanvas)return;
-  const W=256,H=Math.round(256*(mapBgH||1200)/(mapBgW||2000));
-  const oc=document.createElement('canvas');oc.width=W;oc.height=H;
-  const ctx=oc.getContext('2d');
-  ctx.drawImage(terrainCanvas,0,0,W,H);
-  G_terrainPixels=ctx.getImageData(0,0,W,H).data;
-  G_terrainW=W;G_terrainH=H;
+function distPointSegNorm(px,py,ax,ay,bx,by){
+  const dx=bx-ax,dy=by-ay,len2=dx*dx+dy*dy;
+  if(len2===0)return Math.hypot(px-ax,py-ay);
+  const t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/len2));
+  return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
 }
 
 // ══════════════════════════════════
@@ -913,12 +922,12 @@ function initNewEditor(){
   if(wrap){wrap.style.width=EDITOR_NATIVE_W+'px';wrap.style.height=EDITOR_NATIVE_H+'px';}
   eCtx=cv.getContext('2d');
   eCtx.imageSmoothingEnabled=true;eCtx.imageSmoothingQuality='high';
-  // Separate terrain canvas — only strokes, no background
+  // Visual terrain canvas (same size as main canvas, used only for display)
   const terrainCv=document.createElement('canvas');
   terrainCv.width=EDITOR_NATIVE_W;terrainCv.height=EDITOR_NATIVE_H;
   eTerrainCtx=terrainCv.getContext('2d');
   eTerrainCtx.imageSmoothingEnabled=true;eTerrainCtx.imageSmoothingQuality='high';
-  eHistory=[];eMarkers=[];
+  eHistory=[];eTerrainStrokes=[];eCurrentStroke=null;eMarkers=[];
   // Fit canvas to area at init
   eInitScale=Math.min(aW/EDITOR_NATIVE_W,aH/EDITOR_NATIVE_H);
   eScale=eInitScale;ePanX=0;ePanY=0;ePanning=false;eBg=null;
@@ -976,6 +985,18 @@ function eOnMD(e){
   if(eTool.startsWith('base_')||eTool.startsWith('unit_')||eTool==='city'){ePlaceMarker(cx,cy);return;}
   if(eTool==='fill'){eFloodFill(Math.round(cx),Math.round(cy));return;}
   eHistoryPush();eDrawing=true;eLX=cx;eLY=cy;
+  // Start new stroke record
+  const col=ECOLORS_TERRAIN[eTool]||null;
+  const bPx=+(document.getElementById('eBrushSize')?.value||14);
+  if(eTool==='erase'){
+    eCurrentStroke={type:'erase',color:null,pts:[],size:bPx*1.5,isErase:true};
+  } else if(col){
+    eCurrentStroke={type:eTool,color:col,pts:[],size:bPx,isErase:false};
+  } else {eCurrentStroke=null;}
+  if(eCurrentStroke&&eBgW>0){
+    const nx2=(cx-eBgX)/eBgW,ny2=(cy-eBgY)/eBgH;
+    eCurrentStroke.pts.push({nx:nx2,ny:ny2});
+  }
 }
 function eOnMM(e){
   e.preventDefault();
@@ -986,7 +1007,7 @@ function eOnMM(e){
   const{cx,cy}=screenToCanvas(sx,sy);
   const brushPx=+(document.getElementById('eBrushSize')?.value||14);
   if(eTool==='erase'){
-    // Erase terrain strokes on terrain canvas
+    // Visual erase on terrain canvas
     if(eTerrainCtx){
       eTerrainCtx.globalCompositeOperation='destination-out';
       eTerrainCtx.beginPath();eTerrainCtx.arc(cx,cy,brushPx*1.5,0,Math.PI*2);
@@ -994,20 +1015,33 @@ function eOnMM(e){
       eTerrainCtx.globalCompositeOperation='source-over';
     }
   }else if(!eTool.startsWith('base_')&&eTool!=='unit_blue'&&eTool!=='unit_red'&&eTool!=='city'&&eTool!=='move'&&eTool!=='fill'){
-    // Draw terrain stroke on TERRAIN CANVAS only
     const col=ECOLORS_TERRAIN[eTool]||ECOLORS_TERRAIN.draw;
+    // Visual draw on terrain canvas
     if(col&&eTerrainCtx){
       eTerrainCtx.strokeStyle=col;eTerrainCtx.lineWidth=brushPx;
       eTerrainCtx.lineCap='round';eTerrainCtx.lineJoin='round';
-      eTerrainCtx.globalAlpha=1;
+      eTerrainCtx.globalAlpha=0.8;
       eTerrainCtx.beginPath();eTerrainCtx.moveTo(eLX,eLY);eTerrainCtx.lineTo(cx,cy);eTerrainCtx.stroke();
+      eTerrainCtx.globalAlpha=1;
     }
   }
-  // Composite result onto main canvas
+  // Record normalized point into current stroke
+  if(eCurrentStroke&&eBgW>0){
+    const nx2=(cx-eBgX)/eBgW,ny2=(cy-eBgY)/eBgH;
+    eCurrentStroke.pts.push({nx:nx2,ny:ny2});
+  }
   eRedrawAll();
   eLX=cx;eLY=cy;
 }
-function eOnMU(e){eDrawing=false;ePanning=false;eRedrawMarkersOverlay();}
+function eOnMU(e){
+  eDrawing=false;ePanning=false;
+  // Finalize stroke — add to list
+  if(eCurrentStroke&&eCurrentStroke.pts.length>0){
+    eTerrainStrokes.push(eCurrentStroke);
+    eCurrentStroke=null;
+  }
+  eRedrawMarkersOverlay();
+}
 function eKeyHandler(e){
   if(!document.getElementById('screen-editor').classList.contains('active'))return;
   // Works for both English (z) and Ukrainian (я) keyboard layouts
@@ -1025,27 +1059,61 @@ function eHandleRightClick(e){
 }
 
 function eHistoryPush(){
-  if(!eTerrainCtx)return;
-  const cv=eTerrainCtx.canvas;
-  eHistory.push(eTerrainCtx.getImageData(0,0,cv.width,cv.height));
-  if(eHistory.length>25)eHistory.shift();
+  // Snapshot current stroke list
+  eHistory.push(JSON.stringify(eTerrainStrokes));
+  if(eHistory.length>30)eHistory.shift();
 }
 window.editorUndoNew=()=>{
   if(!eHistory.length){toast('⚠️ Нічого відміняти');return;}
-  if(eTerrainCtx)eTerrainCtx.putImageData(eHistory.pop(),0,0);
-  eRedrawAll(); // redraw bg + terrain
+  eTerrainStrokes=JSON.parse(eHistory.pop());
+  eRebuildTerrainCanvas();
+  eRedrawAll();
 };
 
+function eRebuildTerrainCanvas(){
+  // Rebuild visual terrain canvas from stroke list
+  if(!eTerrainCtx||!eBgW)return;
+  const tcv=eTerrainCtx.canvas;
+  eTerrainCtx.clearRect(0,0,tcv.width,tcv.height);
+  for(const s of eTerrainStrokes){
+    if(s.isErase){
+      eTerrainCtx.globalCompositeOperation='destination-out';
+      for(const pt of s.pts){
+        const cx2=eBgX+pt.nx*eBgW,cy2=eBgY+pt.ny*eBgH;
+        eTerrainCtx.beginPath();eTerrainCtx.arc(cx2,cy2,s.size,0,Math.PI*2);
+        eTerrainCtx.fillStyle='rgba(0,0,0,1)';eTerrainCtx.fill();
+      }
+      eTerrainCtx.globalCompositeOperation='source-over';
+    } else {
+      eTerrainCtx.strokeStyle=s.color;eTerrainCtx.lineWidth=s.size;
+      eTerrainCtx.lineCap='round';eTerrainCtx.lineJoin='round';eTerrainCtx.globalAlpha=0.8;
+      eTerrainCtx.beginPath();
+      if(s.pts.length===1){
+        const cx2=eBgX+s.pts[0].nx*eBgW,cy2=eBgY+s.pts[0].ny*eBgH;
+        eTerrainCtx.arc(cx2,cy2,s.size/2,0,Math.PI*2);eTerrainCtx.fill();
+      } else {
+        eTerrainCtx.moveTo(eBgX+s.pts[0].nx*eBgW,eBgY+s.pts[0].ny*eBgH);
+        for(let i=1;i<s.pts.length;i++)
+          eTerrainCtx.lineTo(eBgX+s.pts[i].nx*eBgW,eBgY+s.pts[i].ny*eBgH);
+        eTerrainCtx.stroke();
+      }
+      eTerrainCtx.globalAlpha=1;
+    }
+  }
+}
 function eRedrawAll(){
-  // Composite: bg photo + terrain overlay
   if(!eCtx)return;
   const cv=eCtx.canvas;
   eCtx.clearRect(0,0,cv.width,cv.height);
   eCtx.fillStyle='#1a2810';eCtx.fillRect(0,0,cv.width,cv.height);
-  if(eBg&&eBgW>0){eCtx.drawImage(eBg,eBgX,eBgY,eBgW,eBgH);}else{eDrawDefaultBg();return;}
-  // Draw terrain on top with 70% opacity so photo shows through
+  if(eBg&&eBgW>0){
+    eCtx.drawImage(eBg,eBgX,eBgY,eBgW,eBgH);
+  }else{
+    eDrawDefaultBg();return;
+  }
+  // Draw terrain overlay (semi-transparent so photo shows through)
   if(eTerrainCtx){
-    eCtx.globalAlpha=0.75;
+    eCtx.globalAlpha=0.72;
     eCtx.drawImage(eTerrainCtx.canvas,0,0);
     eCtx.globalAlpha=1;
   }
@@ -1077,8 +1145,8 @@ window.editorLoadBg=input=>{
     const sc=Math.min(cv.width/img.naturalWidth,cv.height/img.naturalHeight);
     eBgW=img.naturalWidth*sc;eBgH=img.naturalHeight*sc;
     eBgX=(cv.width-eBgW)/2;eBgY=(cv.height-eBgH)/2;
-    // Clear terrain when new bg loaded (fresh start)
-    if(eTerrainCtx)eTerrainCtx.clearRect(0,0,eTerrainCtx.canvas.width,eTerrainCtx.canvas.height);
+    // Keep existing terrain strokes, rebuild visual on new bg
+    eRebuildTerrainCanvas();
     eRedrawAll();
     toast('📷 Фото завантажено — малюйте терен поверх!');
   };
@@ -1087,13 +1155,14 @@ window.editorLoadBg=input=>{
 window.editorRenameMap=()=>{const n=prompt('Назва карти:',eMapName);if(n)eMapName=n;const el=document.getElementById('editorMapName');if(el)el.textContent=eMapName;};
 window.editorClearTerrain=()=>{
   eHistoryPush();
+  eTerrainStrokes=[];
   if(eTerrainCtx)eTerrainCtx.clearRect(0,0,eTerrainCtx.canvas.width,eTerrainCtx.canvas.height);
   eRedrawAll();
   toast('🗑️ Терен очищено');
 };
 window.editorClearMarkers=()=>{eMarkers=[];eRedrawMarkersOverlay();toast('🚫 Маркери видалено');};
 window.editorClearAll=()=>{
-  eHistoryPush();eMarkers=[];eBg=null;
+  eHistoryPush();eMarkers=[];eBg=null;eTerrainStrokes=[];
   if(eTerrainCtx)eTerrainCtx.clearRect(0,0,eTerrainCtx.canvas.width,eTerrainCtx.canvas.height);
   if(eCtx){const cv=eCtx.canvas;eCtx.fillStyle='#1a2810';eCtx.fillRect(0,0,cv.width,cv.height);eDrawDefaultBg();}
   eRedrawMarkersOverlay();toast('💥 Все очищено');
@@ -1107,36 +1176,19 @@ function ePlaceMarker(cx,cy){
   eRedrawMarkersOverlay();eUpdateMarkerList();
 }
 function eFloodFill(cx,cy){
-  if(!eTerrainCtx)return;
+  // Fill = large circle stroke at click point (simpler, reliable)
+  if(!eBgW)return;
   eHistoryPush();
-  const col=ECOLORS_TERRAIN[eTool]||ECOLORS_TERRAIN.draw;
+  const col=ECOLORS_TERRAIN[eTool];
   if(!col)return;
-  // For fill tool, draw on terrain canvas with a large filled rect matching the drawing area
-  // Simple approach: paint entire canvas if fill tool selected, clipped to bg area
-  // More accurate: flood-fill on terrain canvas
-  const tcv=eTerrainCtx.canvas;
-  const imgData=eTerrainCtx.getImageData(0,0,tcv.width,tcv.height);
-  const data=imgData.data;
-  const idx=(x,y)=>(y*tcv.width+x)*4;
-  // Clamp to canvas bounds
-  const scx=Math.max(0,Math.min(tcv.width-1,cx));
-  const scy=Math.max(0,Math.min(tcv.height-1,cy));
-  const target=[data[idx(scx,scy)],data[idx(scx,scy)+1],data[idx(scx,scy)+2],data[idx(scx,scy)+3]];
-  const fill=hexOrRgbaToRgb(col);if(!fill)return;
-  if(target[0]===fill.r&&target[1]===fill.g&&target[2]===fill.b&&target[3]>200)return;
-  const stack=[[scx,scy]];
-  const visited=new Uint8Array(tcv.width*tcv.height);
-  while(stack.length){
-    const[x,y]=stack.pop();
-    if(x<0||x>=tcv.width||y<0||y>=tcv.height)continue;
-    const i=idx(x,y);const vi=y*tcv.width+x;if(visited[vi])continue;visited[vi]=1;
-    const a=data[i+3];
-    if(a>30&&(Math.abs(data[i]-target[0])>40||Math.abs(data[i+1]-target[1])>40||Math.abs(data[i+2]-target[2])>40))continue;
-    data[i]=fill.r;data[i+1]=fill.g;data[i+2]=fill.b;data[i+3]=255;
-    stack.push([x+1,y],[x-1,y],[x,y+1],[x,y-1]);
-  }
-  eTerrainCtx.putImageData(imgData,0,0);
+  const nx2=(cx-eBgX)/eBgW,ny2=(cy-eBgY)/eBgH;
+  // Add a big circle fill stroke
+  const fillSize=Math.max(eBgW,eBgH)*0.08; // 8% of map size
+  const s={type:eTool,color:col,pts:[{nx:nx2,ny:ny2}],size:fillSize,isErase:false};
+  eTerrainStrokes.push(s);
+  eRebuildTerrainCanvas();
   eRedrawAll();
+  toast('🪣 Заливка: '+eTool);
 }
 function hexOrRgbaToRgb(col){if(!col)return{r:26,g:40,b:16};if(col.startsWith('#')){const r=parseInt(col.slice(1,3),16),g=parseInt(col.slice(3,5),16),b=parseInt(col.slice(5,7),16);return{r,g,b};}if(col.startsWith('rgba')){const m=col.match(/[\d.]+/g);return m?{r:+m[0],g:+m[1],b:+m[2]}:null;}return null;}
 function eRedrawMarkersOverlay(){
@@ -1173,16 +1225,13 @@ window.editorSaveMap=async()=>{
     }
     if(!bgUrl&&eBg){bgUrl=eBg.src;}
 
-    // Save terrain layer directly from the separate terrain canvas (reliable, no compositing tricks)
-    const TERRAIN_RES=512;
-    const terrainCanvas=document.createElement('canvas');
-    terrainCanvas.width=TERRAIN_RES;
-    terrainCanvas.height=Math.round(TERRAIN_RES*EDITOR_NATIVE_H/EDITOR_NATIVE_W);
-    const tCtx=terrainCanvas.getContext('2d');
-    if(eTerrainCtx){
-      tCtx.drawImage(eTerrainCtx.canvas,0,0,terrainCanvas.width,terrainCanvas.height);
-    }
-    const terrainDataUrl=terrainCanvas.toDataURL('image/png');
+    // Save terrain as JSON strokes — 100% reliable, no pixel conversion
+    const terrainStrokes=eTerrainStrokes.map(s=>({
+      type:s.type,color:s.color,
+      pts:s.pts.filter((_,i)=>i%2===0||i===s.pts.length-1), // thin out points
+      size:s.size,isErase:s.isErase||false
+    }));
+    const terrainDataUrl=null; // deprecated
 
     const date=new Date().toLocaleDateString('uk-UA');
     const spawns={
@@ -1191,7 +1240,7 @@ window.editorSaveMap=async()=>{
       units:eMarkers.filter(m=>m.type==='unit').map(m=>({team:m.team,unitType:m.unitType,nx:m.nx,ny:m.ny}))
     };
     const cities=eMarkers.filter(m=>m.type==='city').map(m=>({nx:m.nx,ny:m.ny,name:m.name}));
-    const mapEntry={url:bgUrl||cv.toDataURL('image/jpeg',.85),name:eMapName,date,spawns,cities,terrainDataUrl};
+    const mapEntry={url:bgUrl||cv.toDataURL('image/jpeg',.85),name:eMapName,date,spawns,cities,terrainStrokes};
     if(eMapIdx>=0){globalMaps[eMapIdx]=mapEntry;}else{globalMaps.push(mapEntry);}
     await setDoc(doc(db,'appData','globalMaps'),{maps:globalMaps});
     renderLobbyGlobalMaps();if(isAdmin)renderAdminMaps();
@@ -1211,19 +1260,9 @@ function eLoadMapForEditing(m){
     // Draw bg (photo = the map)
     eCtx.fillStyle='#1a2810';eCtx.fillRect(0,0,cv.width,cv.height);
     eCtx.drawImage(img,eBgX,eBgY,eBgW,eBgH);
-    // Restore terrain layer onto separate terrain canvas
-    if(eTerrainCtx){
-      eTerrainCtx.clearRect(0,0,eTerrainCtx.canvas.width,eTerrainCtx.canvas.height);
-      if(m.terrainDataUrl){
-        const timg=new Image();
-        timg.onload=()=>{
-          // Draw terrain scaled to match where bg is drawn on canvas
-          eTerrainCtx.drawImage(timg,eBgX,eBgY,eBgW,eBgH);
-          eRedrawAll();
-        };
-        timg.src=m.terrainDataUrl;
-      }
-    }
+    // Restore terrain strokes
+    eTerrainStrokes=m.terrainStrokes||[];
+    eRebuildTerrainCanvas();
     eMarkers=[];
     if(m.spawns){
       if(m.spawns.blueBase)eMarkers.push({type:'base',team:'blue',nx:m.spawns.blueBase.nx,ny:m.spawns.blueBase.ny});
@@ -1322,17 +1361,8 @@ function initGameState(mapData,playerRole){
   loadTerrainFromMap(mapData);updateHUD();updateCitiesPanel();
 }
 function loadTerrainFromMap(mapEntry){
-  G_terrainPixels=null;G_terrainW=0;G_terrainH=0;
-  if(mapEntry?.terrainDataUrl){
-    const img=new Image();
-    img.onload=()=>{
-      const W=256,H=Math.round(256*(mapBgH||1200)/(mapBgW||2000));
-      const oc=document.createElement('canvas');oc.width=W;oc.height=H;
-      const ctx=oc.getContext('2d');ctx.drawImage(img,0,0,W,H);
-      G_terrainPixels=ctx.getImageData(0,0,W,H).data;G_terrainW=W;G_terrainH=H;
-    };
-    img.src=mapEntry.terrainDataUrl;
-  }
+  // Load strokes directly into G_terrainStrokes for runtime sampling
+  G_terrainStrokes=mapEntry?.terrainStrokes||[];
 }
 function applyMapData(){
   if(!mapBgW||!mapBgH)return;const mw=mapBgW,mh=mapBgH;
