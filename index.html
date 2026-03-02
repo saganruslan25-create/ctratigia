@@ -140,6 +140,7 @@ input,select,textarea{user-select:text!important;-webkit-user-select:text!import
 .etool.water-tool.active{background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.4);color:#60a5fa;}
 .etool.forest-tool.active{background:rgba(22,163,74,.12);border-color:rgba(22,163,74,.4);color:#4ade80;}
 .etool.road-tool.active{background:rgba(161,119,53,.12);border-color:rgba(161,119,53,.4);color:#d97706;}
+.etool.meadow-tool.active{background:rgba(134,179,80,.12);border-color:rgba(134,179,80,.4);color:#86b350;}
 .etool.bridge-tool.active{background:rgba(146,64,14,.12);border-color:rgba(146,64,14,.4);color:#a16207;}
 .editor-cursor-hint{position:absolute;bottom:12px;left:12px;background:rgba(4,6,8,.9);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:10px;color:var(--dim);pointer-events:none;z-index:20;}
 .editor-zoom-ind{position:absolute;bottom:12px;right:12px;background:rgba(4,6,8,.8);border:1px solid rgba(255,255,255,.06);border-radius:6px;padding:4px 10px;font-size:10px;color:var(--dim);}
@@ -366,6 +367,7 @@ input,select,textarea{user-select:text!important;-webkit-user-select:text!import
         <button class="etool bridge-tool" id="etool-bridge" onclick="setETool('bridge')">🌉 Міст</button>
         <button class="etool forest-tool" id="etool-forest" onclick="setETool('forest')">🌲 Ліс</button>
         <button class="etool road-tool" id="etool-road" onclick="setETool('road')">🛣️ Дорога</button>
+        <button class="etool meadow-tool" id="etool-meadow" onclick="setETool('meadow')">🌿 Луг (поле)</button>
       </div>
       <div class="editor-tool-group">
         <div class="editor-group-label">ПОЗИЦІЇ</div>
@@ -402,8 +404,14 @@ input,select,textarea{user-select:text!important;-webkit-user-select:text!import
       </div>
       <div class="editor-tool-group" style="margin-top:auto;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);">
         <div class="editor-group-label">ЛЕГЕНДА</div>
-        <div style="font-size:9px;color:var(--dim);line-height:1.8;">
-          🌊 Вода = блокує рух<br>🌉 Міст = прохід через воду<br>🌲 Ліс = -40% швидкості<br>🛣️ Дорога = +30% швидкості<br>ЛКМ на маркері = видалити
+        <div style="font-size:9px;color:var(--dim);line-height:2;">
+          <span style="display:inline-block;width:10px;height:10px;background:#1e40af;border-radius:2px;vertical-align:middle"></span> Вода = блокує рух<br>
+          <span style="display:inline-block;width:10px;height:10px;background:#92400e;border-radius:2px;vertical-align:middle"></span> Міст = прохід через воду<br>
+          <span style="display:inline-block;width:10px;height:10px;background:#166534;border-radius:2px;vertical-align:middle"></span> Ліс = -50% швидкості<br>
+          <span style="display:inline-block;width:10px;height:10px;background:#b45309;border-radius:2px;vertical-align:middle"></span> Дорога = +40% пріоритет<br>
+          <span style="display:inline-block;width:10px;height:10px;background:#86b350;border-radius:2px;vertical-align:middle"></span> Луг = норма<br>
+          ЛКМ на маркері = видалити<br>
+          🧹 Стерти = відновлює фото
         </div>
       </div>
     </div>
@@ -670,7 +678,7 @@ let eMarkers=[],eMapName='Нова карта',eMapIdx=-1;
 let eScale=1,ePanX=0,ePanY=0,ePanning=false,ePanLX=0,ePanLY=0;
 let editorEditingMapIdx=-1,editorMarkers=[],editorCtx=null,editorTool='draw',editorColor='#22c55e',editorSize=8,editorDrawing=false,editorLastX=0,editorLastY=0;
 let inputMode='move',patrolPoint1=null,selectedUnitIds=new Set(),projectiles=[],missileTargetMode=false;
-let G_terrain={roads:[],forests:[],water:[],bridges:[]};
+// G_terrain replaced by pixel-based system (G_terrainPixels)
 
 const UNIT_DEFS={
   infantry:{name:'Піхота',emoji:'👥',radius:8,hp:100,maxHp:100,atk:12,def:5,speed:18,range:40,cost:150},
@@ -682,7 +690,50 @@ const UNIT_DEFS={
 };
 const CITY_INCOME=150,BASE_INCOME=50;
 const EDITOR_COLORS=['#22c55e','#3b82f6','#ef4444','#f59e0b','#8b5cf6','#06b6d4','#ffffff','#1a2810','#5c3d1a','#1e3a5f','#0d2d4a','#000000','#6b7280'];
-const ECOLORS_TERRAIN={water:'rgba(30,64,175,0.75)',bridge:'rgba(120,80,20,0.9)',forest:'rgba(22,101,52,0.7)',road:'rgba(180,140,60,0.85)',draw:'#22c55e',erase:null};
+// Terrain paint colors — stored AS-IS in canvas pixels, sampled at runtime for logic
+const TERRAIN_COLORS={
+  water:  {r:30, g:64, b:175},   // #1e40af blue
+  forest: {r:22, g:101,b:52},    // #166534 dark green  
+  road:   {r:180,g:83, b:9},     // #b45309 amber
+  bridge: {r:146,g:64, b:14},    // #92400e dark amber
+  meadow: {r:134,g:179,b:80},    // #86b350 light green (normal speed field)
+};
+const ECOLORS_TERRAIN={
+  water:  '#1e40af',
+  forest: '#166534',
+  road:   '#b45309',
+  bridge: '#92400e',
+  meadow: '#86b350',
+  draw:   '#22c55e',
+  erase:  null
+};
+// Terrain pixel map (sampled from editor canvas, used for fast game-time lookup)
+let G_terrainPixels=null,G_terrainW=0,G_terrainH=0;
+function sampleTerrainAt(wx,wy){
+  if(!G_terrainPixels||!G_terrainW||!G_terrainH)return'none';
+  const mw=mapBgW||2000,mh=mapBgH||1200;
+  const px=Math.round(wx/mw*G_terrainW),py=Math.round(wy/mh*G_terrainH);
+  if(px<0||py<0||px>=G_terrainW||py>=G_terrainH)return'none';
+  const i=(py*G_terrainW+px)*4;
+  const r=G_terrainPixels[i],g=G_terrainPixels[i+1],b=G_terrainPixels[i+2],a=G_terrainPixels[i+3];
+  if(a<30)return'none';
+  // Match by color distance
+  let best='none',bestD=60;
+  for(const[name,c]of Object.entries(TERRAIN_COLORS)){
+    const d=Math.sqrt((r-c.r)**2+(g-c.g)**2+(b-c.b)**2);
+    if(d<bestD){bestD=d;best=name;}
+  }
+  return best;
+}
+function buildTerrainPixelMap(terrainCanvas){
+  if(!terrainCanvas)return;
+  const W=256,H=Math.round(256*(mapBgH||1200)/(mapBgW||2000));
+  const oc=document.createElement('canvas');oc.width=W;oc.height=H;
+  const ctx=oc.getContext('2d');
+  ctx.drawImage(terrainCanvas,0,0,W,H);
+  G_terrainPixels=ctx.getImageData(0,0,W,H).data;
+  G_terrainW=W;G_terrainH=H;
+}
 
 // ══════════════════════════════════
 //  AUTH
@@ -929,8 +980,14 @@ function eOnMM(e){
   const{cx,cy}=screenToCanvas(sx,sy);
   const brushPx=+(document.getElementById('eBrushSize')?.value||14);
   if(eTool==='erase'){
-    if(eBg&&eBgW>0){const bsr=brushPx/eBgW*eBg.naturalWidth;const srcX=(cx-eBgX)/eBgW*eBg.naturalWidth;const srcY=(cy-eBgY)/eBgH*eBg.naturalHeight;eCtx.drawImage(eBg,srcX-bsr,srcY-bsr,bsr*2,bsr*2,cx-brushPx,cy-brushPx,brushPx*2,brushPx*2);}
-    else{eCtx.fillStyle='#1a2810';eCtx.beginPath();eCtx.arc(cx,cy,brushPx,0,Math.PI*2);eCtx.fill();}
+    if(eBg&&eBgW>0){
+      // Restore the background photo pixels in this area (erase terrain paint)
+      const srcX=(cx-eBgX)/eBgW*eBg.naturalWidth,srcY=(cy-eBgY)/eBgH*eBg.naturalHeight;
+      const srcW=brushPx/eBgW*eBg.naturalWidth*2,srcH=brushPx/eBgH*eBg.naturalHeight*2;
+      eCtx.save();eCtx.beginPath();eCtx.arc(cx,cy,brushPx,0,Math.PI*2);eCtx.clip();
+      eCtx.drawImage(eBg,srcX-srcW/2,srcY-srcH/2,srcW,srcH,cx-brushPx,cy-brushPx,brushPx*2,brushPx*2);
+      eCtx.restore();
+    }else{eCtx.fillStyle='#1a2810';eCtx.beginPath();eCtx.arc(cx,cy,brushPx,0,Math.PI*2);eCtx.fill();}
   }else{
     const col=ECOLORS_TERRAIN[eTool]||ECOLORS_TERRAIN.draw;
     eCtx.strokeStyle=col;eCtx.lineWidth=brushPx;eCtx.lineCap='round';eCtx.lineJoin='round';
@@ -973,10 +1030,25 @@ function eDrawDefaultBg(){
 }
 window.setETool=t=>{
   eTool=t;document.querySelectorAll('.etool').forEach(b=>b.classList.remove('active'));document.getElementById('etool-'+t)?.classList.add('active');
-  const hints={draw:'ЛКМ — малювати',erase:'ЛКМ — стерти',fill:'ЛКМ — заливка',move:'ЛКМ тягни — pan | Коліщатко — zoom',water:'ЛКМ — вода',bridge:'ЛКМ — міст',forest:'ЛКМ — ліс',road:'ЛКМ — дорога',city:'ЛКМ — місто',base_blue:'ЛКМ — База СИНІХ',base_red:'ЛКМ — База ЧЕРВОНИХ',unit_blue:'ЛКМ — юніт СИНІХ',unit_red:'ЛКМ — юніт ЧЕРВОНИХ'};
+  const hints={draw:'ЛКМ — малювати',erase:'ЛКМ — стерти',fill:'ЛКМ — заливка',move:'ЛКМ тягни — pan | Коліщатко — zoom',water:'ЛКМ — вода (блокує рух)',bridge:'ЛКМ — міст (прохід через воду)',forest:'ЛКМ — ліс (-50% швидкість)',road:'ЛКМ — дорога (+40% швидкість)',meadow:'ЛКМ — луг (нормальна швидкість)',city:'ЛКМ — місто',base_blue:'ЛКМ — База СИНІХ',base_red:'ЛКМ — База ЧЕРВОНИХ',unit_blue:'ЛКМ — юніт СИНІХ',unit_red:'ЛКМ — юніт ЧЕРВОНИХ'};
   const hint=document.getElementById('editorCursorHint');if(hint)hint.textContent=hints[t]||'';
 };
-window.editorLoadBg=input=>{const file=input.files[0];if(!file)return;const img=new Image();img.onload=()=>{eBg=img;eHistoryPush();const cv=eCtx.canvas;const sc=Math.min(cv.width/img.naturalWidth,cv.height/img.naturalHeight);eBgW=img.naturalWidth*sc;eBgH=img.naturalHeight*sc;eBgX=(cv.width-eBgW)/2;eBgY=(cv.height-eBgH)/2;eCtx.fillStyle='#1a2810';eCtx.fillRect(0,0,cv.width,cv.height);eCtx.drawImage(img,eBgX,eBgY,eBgW,eBgH);toast('📷 Фото завантажено');};img.src=URL.createObjectURL(file);};
+window.editorLoadBg=input=>{
+  const file=input.files[0];if(!file)return;
+  const img=new Image();
+  img.onload=()=>{
+    eBg=img;eHistoryPush();
+    const cv=eCtx.canvas;
+    // Fill entire canvas with the photo — photo IS the map
+    const sc=Math.min(cv.width/img.naturalWidth,cv.height/img.naturalHeight);
+    eBgW=img.naturalWidth*sc;eBgH=img.naturalHeight*sc;
+    eBgX=(cv.width-eBgW)/2;eBgY=(cv.height-eBgH)/2;
+    eCtx.fillStyle='#000';eCtx.fillRect(0,0,cv.width,cv.height);
+    eCtx.drawImage(img,eBgX,eBgY,eBgW,eBgH);
+    toast('📷 Фото завантажено — малюйте терен поверх!');
+  };
+  img.src=URL.createObjectURL(file);
+};
 window.editorRenameMap=()=>{const n=prompt('Назва карти:',eMapName);if(n)eMapName=n;const el=document.getElementById('editorMapName');if(el)el.textContent=eMapName;};
 window.editorClearTerrain=()=>{eHistoryPush();if(eBg&&eBgW>0){eCtx.fillStyle='#1a2810';eCtx.fillRect(0,0,eCtx.canvas.width,eCtx.canvas.height);eCtx.drawImage(eBg,eBgX,eBgY,eBgW,eBgH);}else{eDrawDefaultBg();}toast('🗑️ Терен очищено');};
 window.editorClearMarkers=()=>{eMarkers=[];eRedrawMarkersOverlay();toast('🚫 Маркери видалено');};
@@ -1010,13 +1082,87 @@ function eUpdateMarkerList(){
   el.innerHTML=eMarkers.map((m,i)=>{const label=m.type==='city'?`🏙️ ${m.name}`:m.type==='base'?`${m.team==='blue'?'🏠 База Синіх':'🏚️ База Червоних'}`:`${UNIT_DEFS[m.unitType]?.emoji||'⚪'} ${UNIT_DEFS[m.unitType]?.name||m.unitType} (${m.team==='blue'?'🔵':'🔴'})`;return`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 4px;border-radius:4px;background:rgba(255,255,255,.02);"><span style="font-size:10px">${label}</span><span style="color:#f87171;cursor:pointer;font-size:11px;padding:0 4px" onclick="eRemoveMarker(${i})">✕</span></div>`;}).join('');
 }
 window.editorSaveMap=async()=>{
-  const cv=eCtx?.canvas;if(!cv){toast('❌ Редактор не ініціалізований');return;}toast('⟳ Зберігаємо...');
-  try{const dataUrl=cv.toDataURL('image/jpeg',.92);const key='e_map_'+(eMapIdx>=0?eMapIdx:Date.now());const url=await uploadCloudinary(dataUrl,key);const date=new Date().toLocaleDateString('uk-UA');const spawns={blueBase:eMarkers.find(m=>m.type==='base'&&m.team==='blue')||null,redBase:eMarkers.find(m=>m.type==='base'&&m.team==='red')||null,units:eMarkers.filter(m=>m.type==='unit').map(m=>({team:m.team,unitType:m.unitType,nx:m.nx,ny:m.ny}))};const cities=eMarkers.filter(m=>m.type==='city').map(m=>({nx:m.nx,ny:m.ny,name:m.name}));const mapEntry={url,name:eMapName,date,spawns,cities};if(eMapIdx>=0){globalMaps[eMapIdx]=mapEntry;}else{globalMaps.push(mapEntry);}await setDoc(doc(db,'appData','globalMaps'),{maps:globalMaps});renderLobbyGlobalMaps();if(isAdmin)renderAdminMaps();toast('✅ "'+eMapName+'" збережена!');showScreen('screen-menu');}
-  catch(e){toast('❌ '+e.message);}
+  const cv=eCtx?.canvas;if(!cv){toast('❌ Редактор не ініціалізований');return;}
+  // Validate required markers
+  const hasBlue=eMarkers.some(m=>m.type==='base'&&m.team==='blue');
+  const hasRed=eMarkers.some(m=>m.type==='base'&&m.team==='red');
+  if(!hasBlue||!hasRed){toast('⚠️ Додайте Базу СИНІХ та ЧЕРВОНИХ перед збереженням!');return;}
+  toast('⟳ Зберігаємо карту...');
+  try{
+    // Save background photo as map image (user uploaded photo IS the map)
+    let bgUrl=eMapIdx>=0?globalMaps[eMapIdx]?.url:null;
+    if(eBg&&!bgUrl){
+      // New map with photo — upload the bg
+      const bgCanvas=document.createElement('canvas');bgCanvas.width=eBg.naturalWidth;bgCanvas.height=eBg.naturalHeight;
+      bgCanvas.getContext('2d').drawImage(eBg,0,0);
+      bgUrl=await uploadCloudinary(bgCanvas.toDataURL('image/jpeg',.92),'bg_map_'+Date.now());
+    }
+    if(!bgUrl&&eBg){bgUrl=eBg.src;}
+
+    // Save terrain layer as small PNG for pixel sampling (terrain drawn ON TOP of bg)
+    // Extract only terrain pixels (non-bg pixels) from main canvas into a small terrain map
+    const TERRAIN_RES=512;
+    const terrainCanvas=document.createElement('canvas');
+    terrainCanvas.width=TERRAIN_RES;terrainCanvas.height=Math.round(TERRAIN_RES*EDITOR_NATIVE_H/EDITOR_NATIVE_W);
+    const tCtx=terrainCanvas.getContext('2d');
+    // Draw terrain overlay only (not the bg) using compositing
+    // We do this by drawing the full canvas and masking the bg
+    tCtx.drawImage(cv,0,0,terrainCanvas.width,terrainCanvas.height);
+    if(eBg){
+      // Subtract bg: draw bg with destination-out to remove it, leaving only terrain paint
+      tCtx.globalCompositeOperation='destination-out';
+      tCtx.drawImage(eBg,0,0,terrainCanvas.width,terrainCanvas.height);
+      tCtx.globalCompositeOperation='source-over';
+    }
+    // terrainDataUrl stored inline (small enough at 512px, base64 PNG)
+    const terrainDataUrl=terrainCanvas.toDataURL('image/png');
+
+    const date=new Date().toLocaleDateString('uk-UA');
+    const spawns={
+      blueBase:eMarkers.find(m=>m.type==='base'&&m.team==='blue')||null,
+      redBase:eMarkers.find(m=>m.type==='base'&&m.team==='red')||null,
+      units:eMarkers.filter(m=>m.type==='unit').map(m=>({team:m.team,unitType:m.unitType,nx:m.nx,ny:m.ny}))
+    };
+    const cities=eMarkers.filter(m=>m.type==='city').map(m=>({nx:m.nx,ny:m.ny,name:m.name}));
+    const mapEntry={url:bgUrl||cv.toDataURL('image/jpeg',.85),name:eMapName,date,spawns,cities,terrainDataUrl};
+    if(eMapIdx>=0){globalMaps[eMapIdx]=mapEntry;}else{globalMaps.push(mapEntry);}
+    await setDoc(doc(db,'appData','globalMaps'),{maps:globalMaps});
+    renderLobbyGlobalMaps();if(isAdmin)renderAdminMaps();
+    toast('✅ "'+eMapName+'" збережена!');showScreen('screen-menu');
+  }
+  catch(e){toast('❌ '+e.message);console.error(e);}
 };
 function eLoadMapForEditing(m){
   const img=new Image();img.crossOrigin='anonymous';
-  img.onload=()=>{eBg=img;const cv=eCtx.canvas;const sc=Math.min(cv.width/img.naturalWidth,cv.height/img.naturalHeight);eBgW=img.naturalWidth*sc;eBgH=img.naturalHeight*sc;eBgX=(cv.width-eBgW)/2;eBgY=(cv.height-eBgH)/2;eCtx.fillStyle='#1a2810';eCtx.fillRect(0,0,cv.width,cv.height);eCtx.drawImage(img,eBgX,eBgY,eBgW,eBgH);eMarkers=[];if(m.spawns){if(m.spawns.blueBase)eMarkers.push({type:'base',team:'blue',nx:m.spawns.blueBase.nx,ny:m.spawns.blueBase.ny});if(m.spawns.redBase)eMarkers.push({type:'base',team:'red',nx:m.spawns.redBase.nx,ny:m.spawns.redBase.ny});(m.spawns.units||[]).forEach(u=>eMarkers.push({type:'unit',team:u.team,unitType:u.unitType,nx:u.nx,ny:u.ny}));}(m.cities||[]).forEach(c=>eMarkers.push({type:'city',nx:c.nx,ny:c.ny,name:c.name}));eMapName=m.name;const el=document.getElementById('editorMapName');if(el)el.textContent=eMapName;eRedrawMarkersOverlay();eUpdateMarkerList();toast('✏️ Завантажено: '+m.name);};img.src=m.url;
+  img.onload=()=>{
+    eBg=img;
+    const cv=eCtx.canvas;
+    // Scale bg to fill the native canvas while preserving aspect ratio
+    const sc=Math.min(cv.width/img.naturalWidth,cv.height/img.naturalHeight);
+    eBgW=img.naturalWidth*sc;eBgH=img.naturalHeight*sc;
+    eBgX=(cv.width-eBgW)/2;eBgY=(cv.height-eBgH)/2;
+    // Draw bg (photo = the map)
+    eCtx.fillStyle='#1a2810';eCtx.fillRect(0,0,cv.width,cv.height);
+    eCtx.drawImage(img,eBgX,eBgY,eBgW,eBgH);
+    // Restore terrain layer on top if saved
+    if(m.terrainDataUrl){
+      const timg=new Image();
+      timg.onload=()=>{eCtx.drawImage(timg,eBgX,eBgY,eBgW,eBgH);};
+      timg.src=m.terrainDataUrl;
+    }
+    eMarkers=[];
+    if(m.spawns){
+      if(m.spawns.blueBase)eMarkers.push({type:'base',team:'blue',nx:m.spawns.blueBase.nx,ny:m.spawns.blueBase.ny});
+      if(m.spawns.redBase)eMarkers.push({type:'base',team:'red',nx:m.spawns.redBase.nx,ny:m.spawns.redBase.ny});
+      (m.spawns.units||[]).forEach(u=>eMarkers.push({type:'unit',team:u.team,unitType:u.unitType,nx:u.nx,ny:u.ny}));
+    }
+    (m.cities||[]).forEach(c=>eMarkers.push({type:'city',nx:c.nx,ny:c.ny,name:c.name}));
+    eMapName=m.name;
+    const el=document.getElementById('editorMapName');if(el)el.textContent=eMapName;
+    eRedrawMarkersOverlay();eUpdateMarkerList();
+    toast('✏️ Завантажено: '+m.name);
+  };
+  img.src=m.url;
 }
 
 // ══════════════════════════════════
@@ -1098,10 +1244,22 @@ function initGameState(mapData,playerRole){
   document.getElementById('hudPhase').textContent='РОЗМІЩЕННЯ';document.getElementById('placementHint').classList.add('vis');
   if(mapData?.cities?.length>0)G._pendingCities=mapData.cities;else G._pendingCities=null;
   if(mapData?.spawns)G._pendingSpawns=mapData.spawns;
-  G._waterAreas=mapData?.water||mapData?.terrain?.water||[];G._bridges=mapData?.bridges||mapData?.terrain?.bridges||[];
+  // terrain loaded via pixel map in loadTerrainFromMap
   loadTerrainFromMap(mapData);updateHUD();updateCitiesPanel();
 }
-function loadTerrainFromMap(mapEntry){G_terrain=mapEntry?.terrain?{roads:mapEntry.terrain.roads||[],forests:mapEntry.terrain.forests||[],water:mapEntry.terrain.water||[],bridges:mapEntry.terrain.bridges||[]}:{roads:[],forests:[],water:[],bridges:[]};}
+function loadTerrainFromMap(mapEntry){
+  G_terrainPixels=null;G_terrainW=0;G_terrainH=0;
+  if(mapEntry?.terrainDataUrl){
+    const img=new Image();
+    img.onload=()=>{
+      const W=256,H=Math.round(256*(mapBgH||1200)/(mapBgW||2000));
+      const oc=document.createElement('canvas');oc.width=W;oc.height=H;
+      const ctx=oc.getContext('2d');ctx.drawImage(img,0,0,W,H);
+      G_terrainPixels=ctx.getImageData(0,0,W,H).data;G_terrainW=W;G_terrainH=H;
+    };
+    img.src=mapEntry.terrainDataUrl;
+  }
+}
 function applyMapData(){
   if(!mapBgW||!mapBgH)return;const mw=mapBgW,mh=mapBgH;
   if(G._pendingCities?.length>0){G.cities=G._pendingCities.map((c,i)=>({id:'city_'+i,name:c.name||('Місто '+(i+1)),x:c.nx*mw,y:c.ny*mh,nx:c.nx,ny:c.ny,owner:'neutral',income:CITY_INCOME,hp:300,maxHp:300,captureProgress:{blue:0,red:0}}));G._pendingCities=null;addLog('🏙️ '+G.cities.length+' міст','info');}
@@ -1174,7 +1332,7 @@ function initGameCanvases(){
   setupInteraction();
 }
 function resizeCanvases(){const area=document.getElementById('gameBody');if(!area)return;CW=Math.max(1,area.clientWidth);CH=Math.max(1,area.clientHeight);['mapCanvas','unitsCanvas','frontCanvas','uiCanvas','interCanvas'].forEach(id=>{const cv=document.getElementById(id);if(!cv)return;cv.width=CW;cv.height=CH;cv.style.width=CW+'px';cv.style.height=CH+'px';});if(mapBgW>0)centerMap();drawAll();}
-function centerMap(){if(!mapBgW||!CW||!CH)return;const sc=Math.min(CW/mapBgW,CH/mapBgH,.95);camScale=sc;camX=(CW-mapBgW*camScale)/2;camY=(CH-mapBgH*camScale)/2;}
+function centerMap(){if(!mapBgW||!CW||!CH)return;const sc=Math.min(CW/mapBgW,CH/mapBgH);camScale=sc;camX=(CW-mapBgW*camScale)/2;camY=(CH-mapBgH*camScale)/2;}
 function s2w(sx,sy){return{wx:(sx-camX)/camScale,wy:(sy-camY)/camScale};}
 window.resetView=()=>{if(mapBgW)centerMap();else{camScale=1;camX=0;camY=0;}drawAll();};
 
@@ -1199,13 +1357,13 @@ function updateSelectionHUD(){const n=selectedUnitIds.size;const el=document.get
 // ══════════════════════════════════
 function buildUnitList(){document.getElementById('unitTypesList').innerHTML=Object.entries(UNIT_DEFS).map(([type,d])=>`<div class="sp-unit-btn" onclick="selectUnitType('${type}')" id="ubtn_${type}"><span class="sp-unit-icon">${d.emoji}</span><div class="sp-unit-info"><div class="sp-unit-name">${d.name}</div><div class="sp-unit-stat">HP:${d.hp} · АТК:${d.atk}</div></div><span class="sp-unit-cost">${d.cost}</span></div>`).join('');}
 window.selectUnitType=type=>{const def=UNIT_DEFS[type];if(G.funds[myRole]<def.cost){toast('❌ Недостатньо фондів!');return;}placingType=type;document.querySelectorAll('.sp-unit-btn').forEach(b=>b.classList.remove('active'));document.getElementById('ubtn_'+type)?.classList.add('active');document.getElementById('placementHint').classList.add('vis');document.getElementById('placementHint').textContent='РОЗМІСТІТЬ '+def.name.toUpperCase()+' ('+def.cost+' ₴) | ПКМ = скасувати';};
-function isOnWater(wx,wy){if(!G._waterAreas?.length)return false;return G._waterAreas.some(w=>Math.hypot(wx-w.x,wy-w.y)<w.r);}
-function isOnBridge(wx,wy){if(!G._bridges?.length)return false;return G._bridges.some(b=>Math.hypot(wx-b.x,wy-b.y)<b.r);}
+// isOnWater replaced by pixel-based isTerrainWater
+// isOnBridge replaced by pixel-based isTerrainBridge
 function placeUnit(wx,wy){
   if(!placingType)return;const def=UNIT_DEFS[placingType];if(!def){placingType=null;return;}
   const mapW=mapBgW||2000,halfW=mapW/2;const validZone=myRole==='blue'?wx<halfW:wx>=halfW;
   if(!validZone){toast('⚠️ Лише на своїй половині!');return;}if(G.funds[myRole]<def.cost){toast('❌ Недостатньо фондів!');return;}
-  if(isOnWater(wx,wy)&&!isOnBridge(wx,wy)&&placingType!=='heli'){toast('🌊 Лише гелікоптер або на мосту!');return;}
+  if(isTerrainWater(wx,wy)&&!isTerrainBridge(wx,wy)&&placingType!=='heli'){toast('🌊 Лише гелікоптер або на мосту!');return;}
   // FIX #3: юніт розміщується з state='idle' — не рухається сам
   G.units.push({id:G.nextId++,type:placingType,owner:myRole,x:wx,y:wy,tx:wx,ty:wy,vx:0,vy:0,hp:def.hp,maxHp:def.hp,atk:def.atk,def:def.def,speed:def.speed,range:def.range,radius:def.radius,state:'idle',attackTarget:null,forceTarget:null,moveTarget:null,lastAttack:0,lastAttackAnim:0});
   G.funds[myRole]-=def.cost;addLog('📍 '+def.name+' розміщено'+(gamePhase==='battle'?' [підкріплення]':''),'info');
@@ -1237,12 +1395,55 @@ function rnd(a,b){return a+Math.floor(Math.random()*(b-a+1));}
 // ══════════════════════════════════
 //  TERRAIN
 // ══════════════════════════════════
-function getTerrainSpeedMultiplier(nx,ny){for(const r of G_terrain.roads){if(Math.hypot(r.x-nx,r.y-ny)<r.r+0.02)return 1.3;}for(const f of G_terrain.forests){if(Math.hypot(f.x-nx,f.y-ny)<f.r+0.02)return 0.55;}return 1.0;}
-function isTerrainWater(nx,ny){return G_terrain.water.some(w=>Math.hypot(w.x-nx,w.y-ny)<w.r+0.01);}
-function isTerrainBridge(nx,ny){return G_terrain.bridges.some(b=>Math.hypot(b.x-nx,b.y-ny)<b.r+0.01);}
-function isTerrainForest(nx,ny){return G_terrain.forests.some(f=>Math.hypot(f.x-nx,f.y-ny)<f.r+0.02);}
-function isTerrainRoad(nx,ny){return G_terrain.roads.some(r=>Math.hypot(r.x-nx,r.y-ny)<r.r+0.02);}
-function canMoveTo(x,y,unitType){if(unitType==='heli')return true;const mw=mapBgW||2000,mh=mapBgH||1200;const nx=x/mw,ny=y/mh;if(isOnWater(x,y)&&!isOnBridge(x,y))return false;if(isTerrainWater(nx,ny)&&!isTerrainBridge(nx,ny))return false;return true;}
+// Pixel-based terrain functions — fast and accurate
+function getTerrainAt(wx,wy){return sampleTerrainAt(wx,wy);}
+function getTerrainSpeedMultiplier(wx,wy){
+  const t=getTerrainAt(wx,wy);
+  if(t==='road')return 1.4;
+  if(t==='forest')return 0.5;
+  if(t==='meadow')return 1.0;
+  if(t==='water')return 0; // blocked
+  if(t==='bridge')return 1.0;
+  return 1.0;
+}
+function isTerrainWater(wx,wy){return getTerrainAt(wx,wy)==='water';}
+function isTerrainBridge(wx,wy){return getTerrainAt(wx,wy)==='bridge';}
+function isTerrainForest(wx,wy){return getTerrainAt(wx,wy)==='forest';}
+function isTerrainRoad(wx,wy){return getTerrainAt(wx,wy)==='road';}
+function canMoveTo(x,y,unitType){
+  if(unitType==='heli')return true;
+  const t=getTerrainAt(x,y);
+  if(t==='water')return false; // water blocks ground
+  return true;
+}
+// Road pathfinding — try to stay on roads when possible
+function roadAwareMove(u,tx,ty,dt){
+  const mw=mapBgW||2000,mh=mapBgH||1200;
+  const dx=tx-u.x,dy=ty-u.y,dist=Math.max(1,Math.sqrt(dx*dx+dy*dy));
+  if(dist<4){u.x=tx;u.y=ty;return;}
+  const t=getTerrainAt(u.x,u.y);
+  const onRoad=(t==='road'||t==='bridge');
+  // If not on road, check if there's a road nearby to detour onto
+  if(!onRoad){
+    const searchR=80;
+    for(const angle of[0,-0.4,0.4,-0.8,0.8,-1.2,1.2]){
+      const nx2=u.x+Math.cos(Math.atan2(dy,dx)+angle)*searchR;
+      const ny2=u.y+Math.sin(Math.atan2(dy,dx)+angle)*searchR;
+      if(getTerrainAt(nx2,ny2)==='road'&&canMoveTo(nx2,ny2,u.type)){
+        // Nudge toward road
+        const rdx=nx2-u.x,rdy=ny2-u.y,rd=Math.max(1,Math.sqrt(rdx*rdx+rdy*rdy));
+        const blendX=(dx/dist*0.6+rdx/rd*0.4),blendY=(dy/dist*0.6+rdy/rd*0.4);
+        const bl=Math.max(1,Math.sqrt(blendX*blendX+blendY*blendY));
+        const speedMult=getTerrainSpeedMultiplier(u.x,u.y)||1.0;
+        const step=u.speed*dt*speedMult;
+        const nx3=u.x+(blendX/bl)*step,ny3=u.y+(blendY/bl)*step;
+        if(canMoveTo(nx3,ny3,u.type)){u.x=nx3;u.y=ny3;return;}
+        break;
+      }
+    }
+  }
+  moveToward(u,tx,ty,dt);
+}
 
 // ══════════════════════════════════
 //  GAME LOOP
@@ -1328,10 +1529,16 @@ function updateUnits(dt){
 function nearestEnemy(u,opp){let n=null,nd=Infinity;for(const e of opp){const d=Math.hypot(e.x-u.x,e.y-u.y);if(d<nd){nd=d;n=e;}}return n?{unit:n,d:nd}:null;}
 function moveToward(u,tx,ty,dt){
   const dx=tx-u.x,dy=ty-u.y,dist=Math.max(1,Math.sqrt(dx*dx+dy*dy));
-  const mw=mapBgW||2000,mh=mapBgH||1200;const nx=u.x/mw,ny=u.y/mh;
-  const speedMult=getTerrainSpeedMultiplier(nx,ny);const step=u.speed*dt*speedMult;
+  const rawMult=getTerrainSpeedMultiplier(u.x,u.y);
+  const speedMult=Math.max(0.1,rawMult||1.0);
+  const step=u.speed*dt*speedMult;
   const nx2=u.x+(dx/dist)*step,ny2=u.y+(dy/dist)*step;
-  if(canMoveTo(nx2,ny2,u.type)){u.x=nx2;u.y=ny2;}else if(canMoveTo(nx2,u.y,u.type)){u.x=nx2;}else if(canMoveTo(u.x,ny2,u.type)){u.y=ny2;}
+  // Map boundary clamp
+  const mw=mapBgW||2000,mh=mapBgH||1200;
+  const cx2=Math.max(0,Math.min(mw,nx2)),cy2=Math.max(0,Math.min(mh,ny2));
+  if(canMoveTo(cx2,cy2,u.type)){u.x=cx2;u.y=cy2;}
+  else if(canMoveTo(cx2,u.y,u.type)){u.x=cx2;}
+  else if(canMoveTo(u.x,cy2,u.type)){u.y=cy2;}
 }
 function doAttack(attacker,target){
   if(UNIT_DEFS[attacker.type]?.isMissile){projectiles.push({id:Date.now()+'_'+Math.random(),ox:attacker.x,oy:attacker.y,tx:target.x+rnd(-5,5),ty:target.y+rnd(-5,5),targetId:target.id,owner:attacker.owner,progress:0,damage:Math.max(1,attacker.atk+rnd(-5,5)),trail:[],isGround:false});addLog('🚀 «Смерч» пуск!',attacker.owner===myRole?'info':'warn');return;}
@@ -1376,10 +1583,20 @@ function updateAI(dt){
 }
 function nearestFrom(u,arr){let n=null,nd=Infinity;for(const e of arr){const d=Math.hypot(e.x-u.x,e.y-u.y);if(d<nd){nd=d;n=e;}}return n?{unit:n,d:nd}:null;}
 function aiMovePref(u,tx,ty,dt){
-  const mw=mapBgW||2000,mh=mapBgH||1200;const nx=u.x/mw,ny=u.y/mh;const tnx=tx/mw,tny=ty/mh;const dx=tnx-nx,dy=tny-ny,dist=Math.max(0.0001,Math.sqrt(dx*dx+dy*dy));
-  const isForest=isTerrainForest(nx+dx*.5,ny+dy*.5);const isRoad=isTerrainRoad(nx+dx*.5,ny+dy*.5);
-  if(isForest&&!isRoad){const perpX=-dy/dist,perpY=dx/dist;for(const off of[0.15,-0.15,0.3,-0.3]){const altNx=nx+dx*.5+perpX*off,altNy=ny+dy*.5+perpY*off;if(!isTerrainForest(altNx,altNy)){moveToward(u,altNx*mw,altNy*mh,dt*.7);return;}}}
-  const speedMult=isForest?.55:(isRoad?1.3:1.0);moveToward(u,tx,ty,dt*speedMult);
+  // AI prefers roads over direct path
+  const midX=(u.x+tx)/2,midY=(u.y+ty)/2;
+  const midTerrain=getTerrainAt(midX,midY);
+  const onRoad=(getTerrainAt(u.x,u.y)==='road'||midTerrain==='road');
+  if(midTerrain==='forest'){
+    // Avoid forest — try perpendicular detour
+    const dx=tx-u.x,dy=ty-u.y,dist=Math.max(1,Math.sqrt(dx*dx+dy*dy));
+    const perpX=-dy/dist,perpY=dx/dist;
+    for(const off of[60,-60,120,-120]){
+      const ax=midX+perpX*off,ay=midY+perpY*off;
+      if(getTerrainAt(ax,ay)!=='forest'&&canMoveTo(ax,ay,u.type)){moveToward(u,ax,ay,dt*.8);return;}
+    }
+  }
+  roadAwareMove(u,tx,ty,dt);
 }
 
 // ══════════════════════════════════
@@ -1408,12 +1625,28 @@ function setupInteraction(){
 function canvasRelXY(clientX,clientY){const cv=document.getElementById('interCanvas');const rect=cv?cv.getBoundingClientRect():{left:0,top:0};return{x:clientX-rect.left,y:clientY-rect.top};}
 let pinchDist=0;
 function onTStart(e){e.preventDefault();if(e.touches.length===1){isDragging=false;const r=canvasRelXY(e.touches[0].clientX,e.touches[0].clientY);dragLX=r.x;dragLY=r.y;}else if(e.touches.length===2)pinchDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);}
-function onTMove(e){e.preventDefault();if(e.touches.length===1){const r=canvasRelXY(e.touches[0].clientX,e.touches[0].clientY);const dx=r.x-dragLX,dy=r.y-dragLY;if(Math.abs(dx)+Math.abs(dy)>4)isDragging=true;if(isDragging){camX+=dx;camY+=dy;dragLX=r.x;dragLY=r.y;drawAll();}}else if(e.touches.length===2){const nd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);const mc=canvasRelXY((e.touches[0].clientX+e.touches[1].clientX)/2,(e.touches[0].clientY+e.touches[1].clientY)/2);zoom(nd/pinchDist,mc.x,mc.y);pinchDist=nd;}}
+function onTMove(e){e.preventDefault();if(e.touches.length===1){const r=canvasRelXY(e.touches[0].clientX,e.touches[0].clientY);const dx=r.x-dragLX,dy=r.y-dragLY;if(Math.abs(dx)+Math.abs(dy)>4)isDragging=true;if(isDragging){camX+=dx;camY+=dy;clampCamera();dragLX=r.x;dragLY=r.y;drawAll();}}else if(e.touches.length===2){const nd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);const mc=canvasRelXY((e.touches[0].clientX+e.touches[1].clientX)/2,(e.touches[0].clientY+e.touches[1].clientY)/2);zoom(nd/pinchDist,mc.x,mc.y);pinchDist=nd;}}
 function onTEnd(e){e.preventDefault();if(!isDragging&&e.changedTouches.length===1){const r=canvasRelXY(e.changedTouches[0].clientX,e.changedTouches[0].clientY);handleClick(r.x,r.y,false,false);}isDragging=false;}
 function onWheel(e){e.preventDefault();const r=canvasRelXY(e.clientX,e.clientY);zoom(e.deltaY<0?1.12:0.9,r.x,r.y);}
-function zoom(f,mx,my){const ns=Math.max(.08,Math.min(10,camScale*f));camX=mx-(mx-camX)*(ns/camScale);camY=my-(my-camY)*(ns/camScale);camScale=ns;document.getElementById('zoomInd').textContent=Math.round(camScale*100)+'%';drawAll();}
+function clampCamera(){
+  if(!mapBgW||!CW||!CH)return;
+  // Min scale: map fits in viewport (no zooming out beyond fit)
+  const minScale=Math.min(CW/mapBgW,CH/mapBgH);
+  camScale=Math.max(minScale,Math.min(8,camScale));
+  const mw=mapBgW*camScale,mh=mapBgH*camScale;
+  // Clamp pan so map fills viewport (can't pan beyond edges)
+  if(mw>=CW){camX=Math.min(0,Math.max(CW-mw,camX));}else{camX=(CW-mw)/2;}
+  if(mh>=CH){camY=Math.min(0,Math.max(CH-mh,camY));}else{camY=(CH-mh)/2;}
+}
+function zoom(f,mx,my){
+  const minScale=mapBgW?Math.min(CW/mapBgW,CH/mapBgH):0.08;
+  const ns=Math.max(minScale,Math.min(8,camScale*f));
+  camX=mx-(mx-camX)*(ns/camScale);camY=my-(my-camY)*(ns/camScale);camScale=ns;
+  clampCamera();
+  document.getElementById('zoomInd').textContent=Math.round(camScale*100)+'%';drawAll();
+}
 function onMD(e){const r=canvasRelXY(e.clientX,e.clientY);if(e.button===1){e.preventDefault();isDragging=true;dragLX=r.x;dragLY=r.y;return;}if(e.button===2){isDragging=false;handleClick(r.x,r.y,true,e.shiftKey);return;}isDragging=false;dragLX=r.x;dragLY=r.y;}
-function onMM(e){const r=canvasRelXY(e.clientX,e.clientY);if(e.buttons===4){camX+=r.x-dragLX;camY+=r.y-dragLY;dragLX=r.x;dragLY=r.y;drawAll();return;}if(e.buttons===1){const dx=r.x-dragLX,dy=r.y-dragLY;if(!isDragging&&Math.abs(dx)+Math.abs(dy)>5)isDragging=true;if(isDragging){camX+=r.x-dragLX;camY+=r.y-dragLY;drawAll();}}dragLX=r.x;dragLY=r.y;}
+function onMM(e){const r=canvasRelXY(e.clientX,e.clientY);if(e.buttons===4){camX+=r.x-dragLX;camY+=r.y-dragLY;clampCamera();dragLX=r.x;dragLY=r.y;drawAll();return;}if(e.buttons===1){const dx=r.x-dragLX,dy=r.y-dragLY;if(!isDragging&&Math.abs(dx)+Math.abs(dy)>5)isDragging=true;if(isDragging){camX+=r.x-dragLX;camY+=r.y-dragLY;clampCamera();drawAll();}}dragLX=r.x;dragLY=r.y;}
 function onMU(e){if(isDragging){isDragging=false;return;}const r=canvasRelXY(e.clientX,e.clientY);if(e.button===0)handleClick(r.x,r.y,false,e.shiftKey);}
 function onKey(e){
   if(e.code==='Escape'){placingType=null;document.getElementById('placementHint').classList.remove('vis');document.querySelectorAll('.sp-unit-btn').forEach(b=>b.classList.remove('active'));}
@@ -1575,14 +1808,14 @@ function drawMap(){
   if(!mapCtx||!CW||!CH)return;mapCtx.clearRect(0,0,CW,CH);mapCtx.fillStyle='#06090d';mapCtx.fillRect(0,0,CW,CH);
   mapCtx.save();mapCtx.translate(camX,camY);mapCtx.scale(camScale,camScale);
   const w=mapBgW||2000,h=mapBgH||1200;
-  if(mapBg&&mapBgW>0){mapCtx.drawImage(mapBg,0,0,w,h);if(!G._waterDetected&&mapBg){detectWaterAreas();G._waterDetected=true;}
-  if(G._waterAreas?.length){const t=Date.now()/1000;G._waterAreas.forEach(w2=>{mapCtx.beginPath();mapCtx.arc(w2.x,w2.y,w2.r,0,Math.PI*2);mapCtx.fillStyle=`rgba(30,64,175,${0.12+Math.sin(t*1.5+w2.x*.01)*.04})`;mapCtx.fill();});}
-  if(G._bridges?.length){G._bridges.forEach(b=>{mapCtx.fillStyle='rgba(146,64,14,.6)';mapCtx.beginPath();mapCtx.arc(b.x,b.y,b.r,0,Math.PI*2);mapCtx.fill();mapCtx.strokeStyle='rgba(251,191,36,.5)';mapCtx.lineWidth=2;mapCtx.stroke();mapCtx.font='12px serif';mapCtx.textAlign='center';mapCtx.textBaseline='middle';mapCtx.fillText('🌉',b.x,b.y);});}
+  if(mapBg&&mapBgW>0){
+    // Draw the photo — it IS the map, no terrain overlays (terrain is already visual in the photo)
+    mapCtx.drawImage(mapBg,0,0,w,h);
   }else{
     mapCtx.fillStyle='#141e0e';mapCtx.fillRect(0,0,w,h);
     for(let i=0;i<20;i++){mapCtx.fillStyle=`rgba(${20+Math.sin(i)*8},${40+Math.cos(i)*15},12,.7)`;mapCtx.beginPath();mapCtx.ellipse(w*(.05+.9*(i%10)/10),h*(.1+.8*Math.floor(i/10)/2),w*.07,h*.05,i*.4,0,Math.PI*2);mapCtx.fill();}
     const rg=mapCtx.createLinearGradient(w*.45,0,w*.55,0);rg.addColorStop(0,'rgba(30,64,175,.6)');rg.addColorStop(.5,'rgba(37,99,235,.7)');rg.addColorStop(1,'rgba(30,64,175,.6)');mapCtx.fillStyle=rg;mapCtx.beginPath();mapCtx.moveTo(w*.46,0);mapCtx.bezierCurveTo(w*.44,h*.25,w*.52,h*.5,w*.48,h*.75);mapCtx.lineTo(w*.48,h);mapCtx.lineTo(w*.54,h);mapCtx.bezierCurveTo(w*.56,h*.75,w*.48,h*.5,w*.52,h*.25);mapCtx.lineTo(w*.54,0);mapCtx.fill();
-    G._waterAreas=[{x:w*.5,y:h*.3,r:w*.06},{x:w*.5,y:h*.5,r:w*.05},{x:w*.5,y:h*.7,r:w*.06}];G._bridges=[{x:w*.5,y:h*.5,r:15}];
+    // No map loaded — generate placeholder
   }
   // Placement zone
   if(gamePhase==='placement'&&placingType){const zx=myRole==='blue'?0:w/2;mapCtx.fillStyle='rgba(34,197,94,.06)';mapCtx.fillRect(zx,0,w/2,h);mapCtx.strokeStyle='rgba(34,197,94,.35)';mapCtx.lineWidth=3;mapCtx.setLineDash([10,8]);mapCtx.strokeRect(zx+2,2,w/2-4,h-4);mapCtx.setLineDash([]);}
@@ -1592,7 +1825,7 @@ function drawMap(){
   if(G.cities){G.cities.forEach(city=>{const clr=city.owner==='blue'?'#3b82f6':city.owner==='red'?'#ef4444':'#94a3b8';const glowClr=city.owner==='blue'?'rgba(59,130,246,.3)':city.owner==='red'?'rgba(239,68,68,.3)':'rgba(148,163,184,.1)';mapCtx.beginPath();mapCtx.arc(city.x,city.y,28,0,Math.PI*2);mapCtx.fillStyle=glowClr;mapCtx.fill();mapCtx.font='22px serif';mapCtx.textAlign='center';mapCtx.textBaseline='middle';mapCtx.fillText('🏙️',city.x,city.y);mapCtx.beginPath();mapCtx.arc(city.x,city.y,18,0,Math.PI*2);mapCtx.strokeStyle=clr;mapCtx.lineWidth=2.5;mapCtx.stroke();mapCtx.font='bold 9px Share Tech Mono';mapCtx.textAlign='center';mapCtx.textBaseline='top';mapCtx.fillStyle='rgba(255,255,255,.8)';mapCtx.fillText(city.name,city.x,city.y+20);const p=city.captureProgress;if(p){const bw=36,bh=4,bx=city.x-bw/2,by=city.y-28;mapCtx.fillStyle='rgba(0,0,0,.5)';mapCtx.fillRect(bx-1,by-1,bw+2,bh+2);mapCtx.fillStyle='#1a1a1a';mapCtx.fillRect(bx,by,bw,bh);if(p.blue>0){mapCtx.fillStyle='#3b82f6';mapCtx.fillRect(bx,by,bw*(p.blue/100),bh);}if(p.red>0){mapCtx.fillStyle='#ef4444';mapCtx.fillRect(bx+bw*(1-p.red/100),by,bw*(p.red/100),bh);}}if(city.owner!=='neutral'){mapCtx.fillStyle=city.owner==='blue'?'rgba(59,130,246,.8)':'rgba(239,68,68,.8)';mapCtx.font='bold 8px Oswald';mapCtx.textAlign='center';mapCtx.textBaseline='bottom';mapCtx.fillText('+'+city.income+'₴',city.x,city.y-20);}});}
   mapCtx.restore();
 }
-function detectWaterAreas(){if(!mapBg||!mapBgW)return;const oc=document.createElement('canvas');oc.width=100;oc.height=Math.round(100*mapBgH/mapBgW);const oc2=oc.getContext('2d');oc2.drawImage(mapBg,0,0,oc.width,oc.height);const data=oc2.getImageData(0,0,oc.width,oc.height).data;const wr=[];const step=5;for(let y=0;y<oc.height;y+=step){for(let x=0;x<oc.width;x+=step){const i=(y*oc.width+x)*4;const r=data[i],g=data[i+1],b=data[i+2];if(b>120&&b>r*1.4&&b>g*1.2&&r<120)wr.push({x:(x/oc.width)*mapBgW,y:(y/oc.height)*mapBgH,r:mapBgW/oc.width*step*1.5});}}if(wr.length>0)G._waterAreas=wr;}
+// detectWaterAreas removed — terrain is now pixel-based from editor canvas
 function drawUnits(){
   if(!unitsCtx||!CW||!CH)return;unitsCtx.clearRect(0,0,CW,CH);if(!G.units?.length)return;
   const now=performance.now();unitsCtx.save();unitsCtx.translate(camX,camY);unitsCtx.scale(camScale,camScale);
