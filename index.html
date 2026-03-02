@@ -722,16 +722,17 @@ function moveUnit(u,tx,ty,dt){
   const base=Math.atan2(dy,dx);
   const sm=Math.max(0.05,terrainSpeed(u.x,u.y));
   const step=u.speed*dt*sm;
-  // Try direct + 8 alternate angles to navigate around water
-  const angles=[0,-0.35,0.35,-0.7,0.7,-1.1,1.1,-1.6,1.6];
+  const angles=[0,-0.25,0.25,-0.5,0.5,-0.8,0.8,-1.1,1.1,-1.4,1.4,-1.7,1.7,Math.PI*0.6,-Math.PI*0.6,Math.PI];
   for(const off of angles){
     const a=base+off;
-    const nx=u.x+Math.cos(a)*step,ny=u.y+Math.sin(a)*step;
-    const cx=Math.max(0,Math.min(mw,nx)),cy=Math.max(0,Math.min(mh,ny));
-    if(canMove(cx,cy,u)){u.x=cx;u.y=cy;return;}
+    const nx=Math.max(0,Math.min(mw,u.x+Math.cos(a)*step));
+    const ny=Math.max(0,Math.min(mh,u.y+Math.sin(a)*step));
+    if(canMove(nx,ny,u)){u.x=nx;u.y=ny;return;}
   }
-  // Completely stuck — heli always moves
-  if(u.isAir){u.x=Math.max(0,Math.min(mw,u.x+Math.cos(base)*step));u.y=Math.max(0,Math.min(mh,u.y+Math.sin(base)*step));}
+  if(u.isAir){
+    u.x=Math.max(0,Math.min(mw,u.x+Math.cos(base)*step));
+    u.y=Math.max(0,Math.min(mh,u.y+Math.sin(base)*step));
+  }
 }
 
 // ── AUTH ───────────────────────────────────────────────────
@@ -930,12 +931,6 @@ function eHandleRightClick(e){const area=document.getElementById('editorCanvasAr
 function eHistoryPush(){eHistory.push(JSON.stringify(eTerrainStrokes));if(eHistory.length>30)eHistory.shift();}
 window.editorUndoNew=()=>{if(!eHistory.length){toast('⚠️ Нічого відміняти');return;}eTerrainStrokes=JSON.parse(eHistory.pop());eRebuildTerrainCanvas();eRedrawAll();};
 function eRebuildTerrainCanvas(){
-  if(!eTerrainCtx||!eBgW)return;const tcv=eTerrainCtx.canvas;eTerrainCtx.clearRect(0,0,tcv.width,tcv.height);
-  for(const s of eTerrainStrokes){
-    if(s.isErase){eTerrainCtx.globalCompositeOperation='destination-out';for(const pt of s.pts){const cx=eBgX+pt.nx*eBgW,cy=eBgY+pt.ny*eBgH;eTerrainCtx.beginPath();eTerrainCtx.arc(cx,cy,s.size,0,Math.PI*2);eTerrainCtx.fillStyle='rgba(0,0,0,1)';eTerrainCtx.fill();}eTerrainCtx.globalCompositeOperation='source-over';}
-    else{eTerrainCtx.strokeStyle=s.color;eTerrainCtx.lineWidth=s.size;eTerrainCtx.lineCap='round';eTerrainCtx.lineJoin='round';eTerrainCtx.globalAlpha=0.8;eTerrainCtx.beginPath();if(s.pts.length===1){const cx=eBgX+s.pts[0].nx*eBgW,cy=eBgY+s.pts[0].ny*eBgH;eTerrainCtx.arc(cx,cy,s.size/2,0,Math.PI*2);eTerrainCtx.fill();}else{eTerrainCtx.moveTo(eBgX+s.pts[0].nx*eBgW,eBgY+s.pts[0].ny*eBgH);for(let i=1;i<s.pts.length;i++)eTerrainCtx.lineTo(eBgX+s.pts[i].nx*eBgW,eBgY+s.pts[i].ny*eBgH);eTerrainCtx.stroke();}eTerrainCtx.globalAlpha=1;}
-  }
-}
 function eRedrawAll(){
   if(!eCtx)return;const cv=eCtx.canvas;eCtx.clearRect(0,0,cv.width,cv.height);eCtx.fillStyle='#1a2810';eCtx.fillRect(0,0,cv.width,cv.height);
   if(eBg&&eBgW>0){eCtx.drawImage(eBg,eBgX,eBgY,eBgW,eBgH);}else{eDrawDefaultBg();return;}
@@ -1208,7 +1203,12 @@ function initGameCanvases(){
   setupInteraction();
 }
 function resizeCanvases(){const area=document.getElementById('gameBody');if(!area)return;CW=Math.max(1,area.clientWidth);CH=Math.max(1,area.clientHeight);['mapCanvas','unitsCanvas','frontCanvas','uiCanvas','interCanvas'].forEach(id=>{const cv=document.getElementById(id);if(!cv)return;cv.width=CW;cv.height=CH;cv.style.width=CW+'px';cv.style.height=CH+'px';});if(mapBgW>0)centerMap();drawAll();}
-function centerMap(){if(!mapBgW||!CW||!CH)return;camScale=Math.min(CW/mapBgW,CH/mapBgH);camX=(CW-mapBgW*camScale)/2;camY=(CH-mapBgH*camScale)/2;}
+function centerMap(){
+  if(!mapBgW||!CW||!CH)return;
+  camScale=Math.min(CW/mapBgW,CH/mapBgH);
+  camX=(CW-mapBgW*camScale)/2;
+  camY=(CH-mapBgH*camScale)/2;
+}
 function s2w(sx,sy){return{wx:(sx-camX)/camScale,wy:(sy-camY)/camScale};}
 window.resetView=()=>{if(mapBgW)centerMap();else{camScale=1;camX=0;camY=0;}drawAll();};
 
@@ -1413,28 +1413,32 @@ function updateAI(dt){
 // Terrain-aware AI movement: avoids water, prefers roads
 function aiMoveAvoidTerrain(u,tx,ty,dt,oppRole){
   const mw=mapBgW||2000,mh=mapBgH||1200;
+  if(u.isAir){moveUnit(u,tx,ty,dt);return;}
+  const steps=4;
+  const sdx=(tx-u.x)/steps,sdy=(ty-u.y)/steps;
+  let waterAhead=false;
+  for(let i=1;i<=steps;i++){
+    if(getTerrain(u.x+sdx*i,u.y+sdy*i)==='water'){waterAhead=true;break;}
+  }
+  if(!waterAhead){moveUnit(u,tx,ty,dt);return;}
   const base=Math.atan2(ty-u.y,tx-u.x);
-  const tCurr=getTerrain(u.x,u.y);
-  const tMid=getTerrain((u.x+tx)/2,(u.y+ty)/2);
-  // If forest: slower but still moves
-  // If road on path: no detour needed (speed bonus applied in moveUnit)
-  // If water in path: find detour
-  if(tMid==='water'||tCurr==='water'){
-    // Try 8 directions to find non-water path
-    const step=u.speed*dt*0.8;
-    for(const off of[0.4,-0.4,0.8,-0.8,1.2,-1.2,1.6,-1.6]){
-      const a=base+off;const nx=u.x+Math.cos(a)*step,ny=u.y+Math.sin(a)*step;const cx=clamp(nx,10,mw-10),cy=clamp(ny,10,mh-10);if(getTerrain(cx,cy)!=='water'){u.x=cx;u.y=cy;return;}
-    }
-    // Completely surrounded by water (shouldn't happen for ground) — stand still
-    return;
+  const step=u.speed*dt*0.7;
+  let bestA=null,bestScore=-Infinity;
+  for(let i=0;i<24;i++){
+    const a=base+(i%2===0?1:-1)*Math.floor((i+1)/2)*(Math.PI/8);
+    const nx=Math.max(0,Math.min(mw,u.x+Math.cos(a)*step));
+    const ny=Math.max(0,Math.min(mh,u.y+Math.sin(a)*step));
+    if(getTerrain(nx,ny)==='water')continue;
+    const score=-(Math.hypot(nx-tx,ny-ty))*0.6-Math.abs(a-base)*8
+      +(getTerrain(nx,ny)==='road'?10:0)
+      +(getTerrain(nx,ny)==='bridge'?15:0);
+    if(score>bestScore){bestScore=score;bestA=a;}
   }
-  // Try to stay on roads for bonus speed
-  if(tCurr!=='road'){
-    const searchR=60;const ang=base;for(const off of[0,-0.3,0.3,-0.6,0.6]){const ax=u.x+Math.cos(ang+off)*searchR,ay=u.y+Math.sin(ang+off)*searchR;if(getTerrain(ax,ay)==='road'&&getTerrain(ax,ay)!=='water'){const da=Math.atan2(ay-u.y,ax-u.x);const bA=Math.atan2(ty-u.y,tx-u.x);const blend=(da+bA*2)/3;const step=u.speed*dt;const nx=u.x+Math.cos(blend)*step,ny=u.y+Math.sin(blend)*step;if(getTerrain(clamp(nx,10,mw-10),clamp(ny,10,mh-10))!=='water'){u.x=clamp(nx,10,mw-10);u.y=clamp(ny,10,mh-10);return;}break;}}
+  if(bestA!==null){
+    u.x=Math.max(0,Math.min(mw,u.x+Math.cos(bestA)*step));
+    u.y=Math.max(0,Math.min(mh,u.y+Math.sin(bestA)*step));
   }
-  moveUnit(u,tx,ty,dt);
 }
-
 function nearest(u,arr){let n=null,nd=Infinity;for(const e of arr){const d=Math.hypot(e.x-u.x,e.y-u.y);if(d<nd){nd=d;n=e;}}return n?{unit:n,d:nd}:null;}
 
 // ── GAME LOOP ──────────────────────────────────────────────
@@ -1512,7 +1516,17 @@ function onTS(e){e.preventDefault();if(e.touches.length===1){isDragging=false;co
 function onTM(e){e.preventDefault();if(e.touches.length===1){const r=rel(e.touches[0].clientX,e.touches[0].clientY);const dx=r.x-dragLX,dy=r.y-dragLY;if(Math.abs(dx)+Math.abs(dy)>4)isDragging=true;if(isDragging){camX+=dx;camY+=dy;clampCam();dragLX=r.x;dragLY=r.y;drawAll();}}else if(e.touches.length===2){const nd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);const mc=rel((e.touches[0].clientX+e.touches[1].clientX)/2,(e.touches[0].clientY+e.touches[1].clientY)/2);zoom(nd/pinchDist,mc.x,mc.y);pinchDist=nd;}}
 function onTE(e){e.preventDefault();if(!isDragging&&e.changedTouches.length===1){const r=rel(e.changedTouches[0].clientX,e.changedTouches[0].clientY);handleClick(r.x,r.y,false,false);}isDragging=false;}
 function onWheel(e){e.preventDefault();const r=rel(e.clientX,e.clientY);zoom(e.deltaY<0?1.12:0.9,r.x,r.y);}
-function clampCam(){if(!mapBgW||!CW||!CH)return;const ms=Math.min(CW/mapBgW,CH/mapBgH);camScale=Math.max(ms,Math.min(8,camScale));const mw=mapBgW*camScale,mh=mapBgH*camScale;camX=mw>=CW?Math.min(0,Math.max(CW-mw,camX)):(CW-mw)/2;camY=mh>=CH?Math.min(0,Math.max(CH-mh,camY)):(CH-mh)/2;}
+function clampCam(){
+  if(!mapBgW||!CW||!CH)return;
+  const minScale=Math.min(CW/mapBgW,CH/mapBgH);
+  if(camScale<minScale)camScale=minScale;
+  if(camScale>8)camScale=8;
+  const mw=mapBgW*camScale,mh=mapBgH*camScale;
+  if(mw>=CW){if(camX>0)camX=0;if(camX<CW-mw)camX=CW-mw;}
+  else camX=(CW-mw)/2;
+  if(mh>=CH){if(camY>0)camY=0;if(camY<CH-mh)camY=CH-mh;}
+  else camY=(CH-mh)/2;
+}
 function zoom(f,mx,my){const ms=mapBgW?Math.min(CW/mapBgW,CH/mapBgH):.08;const ns=Math.max(ms,Math.min(8,camScale*f));camX=mx-(mx-camX)*(ns/camScale);camY=my-(my-camY)*(ns/camScale);camScale=ns;clampCam();document.getElementById('zoomInd').textContent=Math.round(camScale*100)+'%';drawAll();}
 function onMD(e){const r=rel(e.clientX,e.clientY);if(e.button===1){e.preventDefault();isDragging=true;dragLX=r.x;dragLY=r.y;return;}if(e.button===2){isDragging=false;handleClick(r.x,r.y,true,e.shiftKey);return;}isDragging=false;dragLX=r.x;dragLY=r.y;}
 function onMM(e){const r=rel(e.clientX,e.clientY);if(e.buttons===4){camX+=r.x-dragLX;camY+=r.y-dragLY;clampCam();dragLX=r.x;dragLY=r.y;drawAll();return;}if(e.buttons===1){const dx=r.x-dragLX,dy=r.y-dragLY;if(!isDragging&&Math.abs(dx)+Math.abs(dy)>5)isDragging=true;if(isDragging){camX+=r.x-dragLX;camY+=r.y-dragLY;clampCam();drawAll();}}dragLX=r.x;dragLY=r.y;}
