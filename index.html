@@ -843,34 +843,42 @@ window.editorSwitchMap=idxStr=>{
   if(!globalMaps[i])return;eMapIdx=i;eMapName=globalMaps[i].name;document.getElementById('editorMapName').textContent=eMapName;eLoadMapForEditing(globalMaps[i]);
 };
 
+// Editor uses a native high-res canvas (4K) — CSS transform zooms it without pixelation
+const EDITOR_NATIVE_W=3840,EDITOR_NATIVE_H=2160;
+let eInitScale=1; // scale that fits canvas to viewport at 100%
+
 function initNewEditor(){
   const area=document.getElementById('editorCanvasArea');
   const cv=document.getElementById('editorCanvas');
   if(!area||!cv)return;
-  const W=area.clientWidth,H=area.clientHeight;
-  // Canvas is always FULL size (not scaled)
-  cv.width=W;cv.height=H;cv.style.width=W+'px';cv.style.height=H+'px';
-  const ov=document.getElementById('editorOverlay');if(ov){ov.style.width=W+'px';ov.style.height=H+'px';}
-  const wrap=document.getElementById('editorZoomWrap');if(wrap){wrap.style.width=W+'px';wrap.style.height=H+'px';}
-  eCtx=cv.getContext('2d');eHistory=[];eMarkers=[];eScale=1;ePanX=0;ePanY=0;ePanning=false;eBg=null;
+  const aW=Math.max(1,area.clientWidth),aH=Math.max(1,area.clientHeight);
+  // Canvas is always 4K — no pixelation at any zoom level
+  cv.width=EDITOR_NATIVE_W;cv.height=EDITOR_NATIVE_H;
+  cv.style.width=EDITOR_NATIVE_W+'px';cv.style.height=EDITOR_NATIVE_H+'px';
+  const ov=document.getElementById('editorOverlay');
+  if(ov){ov.style.width=EDITOR_NATIVE_W+'px';ov.style.height=EDITOR_NATIVE_H+'px';}
+  const wrap=document.getElementById('editorZoomWrap');
+  if(wrap){wrap.style.width=EDITOR_NATIVE_W+'px';wrap.style.height=EDITOR_NATIVE_H+'px';}
+  eCtx=cv.getContext('2d');
+  eCtx.imageSmoothingEnabled=true;eCtx.imageSmoothingQuality='high';
+  eHistory=[];eMarkers=[];
+  // Fit canvas to area at init
+  eInitScale=Math.min(aW/EDITOR_NATIVE_W,aH/EDITOR_NATIVE_H);
+  eScale=eInitScale;ePanX=0;ePanY=0;ePanning=false;eBg=null;
   eDrawDefaultBg();eUpdateMarkerList();
-  // Apply zoom transform
   applyEditorTransform();
-  // Events on the AREA (not canvas), so we capture even when panning outside canvas
   area.onmousedown=eOnMD;area.onmousemove=eOnMM;area.onmouseup=area.onmouseleave=eOnMU;
-  // FIXED wheel handler — capture events on the area div
   area.onwheel=e=>{
     e.preventDefault();
     const r=area.getBoundingClientRect();
     const mx=e.clientX-r.left,my=e.clientY-r.top;
-    const f=e.deltaY<0?1.15:0.87;
-    const ns=Math.max(.1,Math.min(8,eScale*f));
-    // Zoom toward mouse position
+    const f=e.deltaY<0?1.12:0.89;
+    const ns=Math.max(eInitScale*.3,Math.min(8,eScale*f));
     ePanX=mx-(mx-ePanX)*(ns/eScale);
     ePanY=my-(my-ePanY)*(ns/eScale);
     eScale=ns;
     applyEditorTransform();
-    document.getElementById('editorZoomInd').textContent=Math.round(eScale*100)+'%';
+    document.getElementById('editorZoomInd').textContent=Math.round(eScale/eInitScale*100)+'%';
   };
   area.oncontextmenu=e=>{e.preventDefault();eHandleRightClick(e);};
   document.addEventListener('keydown',eKeyHandler);
@@ -895,12 +903,12 @@ function eZoom(f){
   if(!eCtx)return;
   const area=document.getElementById('editorCanvasArea');
   const cx=(area?.clientWidth||800)/2,cy=(area?.clientHeight||600)/2;
-  const ns=Math.max(.1,Math.min(8,eScale*f));
+  const ns=Math.max(eInitScale*.3,Math.min(8,eScale*f));
   ePanX=cx-(cx-ePanX)*(ns/eScale);ePanY=cy-(cy-ePanY)*(ns/eScale);eScale=ns;
   applyEditorTransform();
-  document.getElementById('editorZoomInd').textContent=Math.round(eScale*100)+'%';
+  document.getElementById('editorZoomInd').textContent=Math.round(eScale/eInitScale*100)+'%';
 }
-window.eZoomReset=()=>{eScale=1;ePanX=0;ePanY=0;applyEditorTransform();document.getElementById('editorZoomInd').textContent='100%';};
+window.eZoomReset=()=>{eScale=eInitScale;ePanX=0;ePanY=0;applyEditorTransform();document.getElementById('editorZoomInd').textContent='100%';};
 
 function eOnMD(e){
   e.preventDefault();
@@ -934,7 +942,9 @@ function eOnMM(e){
 function eOnMU(e){eDrawing=false;ePanning=false;eRedrawMarkersOverlay();}
 function eKeyHandler(e){
   if(!document.getElementById('screen-editor').classList.contains('active'))return;
-  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();editorUndoNew();}
+  // Works for both English (z) and Ukrainian (я) keyboard layouts
+  const isZ=e.key.toLowerCase()==='z'||e.key==='я'||e.code==='KeyZ';
+  if((e.ctrlKey||e.metaKey)&&isZ){e.preventDefault();editorUndoNew();}
 }
 function eHandleRightClick(e){
   const area=document.getElementById('editorCanvasArea');const r=area.getBoundingClientRect();
@@ -1405,7 +1415,23 @@ function zoom(f,mx,my){const ns=Math.max(.08,Math.min(10,camScale*f));camX=mx-(m
 function onMD(e){const r=canvasRelXY(e.clientX,e.clientY);if(e.button===1){e.preventDefault();isDragging=true;dragLX=r.x;dragLY=r.y;return;}if(e.button===2){isDragging=false;handleClick(r.x,r.y,true,e.shiftKey);return;}isDragging=false;dragLX=r.x;dragLY=r.y;}
 function onMM(e){const r=canvasRelXY(e.clientX,e.clientY);if(e.buttons===4){camX+=r.x-dragLX;camY+=r.y-dragLY;dragLX=r.x;dragLY=r.y;drawAll();return;}if(e.buttons===1){const dx=r.x-dragLX,dy=r.y-dragLY;if(!isDragging&&Math.abs(dx)+Math.abs(dy)>5)isDragging=true;if(isDragging){camX+=r.x-dragLX;camY+=r.y-dragLY;drawAll();}}dragLX=r.x;dragLY=r.y;}
 function onMU(e){if(isDragging){isDragging=false;return;}const r=canvasRelXY(e.clientX,e.clientY);if(e.button===0)handleClick(r.x,r.y,false,e.shiftKey);}
-function onKey(e){if(e.code==='Escape'){placingType=null;document.getElementById('placementHint').classList.remove('vis');document.querySelectorAll('.sp-unit-btn').forEach(b=>b.classList.remove('active'));}if(e.code==='Space'){e.preventDefault();if(gamePhase==='placement')startBattle();}}
+function onKey(e){
+  if(e.code==='Escape'){placingType=null;document.getElementById('placementHint').classList.remove('vis');document.querySelectorAll('.sp-unit-btn').forEach(b=>b.classList.remove('active'));}
+  if(e.code==='Space'){e.preventDefault();if(gamePhase==='placement')startBattle();}
+  // Ctrl+Z: undo last unit placement (works EN + UK layout)
+  const isZ=e.key.toLowerCase()==='z'||e.key==='я'||e.code==='KeyZ';
+  if((e.ctrlKey||e.metaKey)&&isZ&&gamePhase==='placement'){
+    e.preventDefault();
+    const myUnits=G.units.filter(u=>u.owner===myRole&&!u._dead);
+    if(myUnits.length){
+      const last=myUnits[myUnits.length-1];
+      const def=UNIT_DEFS[last.type];G.funds[myRole]+=(def?.cost||0);
+      G.units=G.units.filter(u=>u.id!==last.id);
+      addLog('↩ Скасовано: '+def?.name,'warn');toast('↩ Скасовано: '+(def?.name||'юніт'));
+      syncGameState();updateHUD();drawAll();
+    }
+  }
+}
 
 function handleClick(sx,sy,isRight,isShift=false){
   if(!G.units)return;const{wx,wy}=s2w(sx,sy);
@@ -1465,6 +1491,9 @@ window.grantAdmin=async(userId)=>{if(!confirm('Надати права адмі�
 //  найближчий ЧЕРВОНИЙ і малюємо точку посередині між ними.
 //  Потім з'єднуємо ці точки плавною лінією.
 // ══════════════════════════════════════════════════════════
+// FIX: Front line — grid-based, covers full map height, black, no glow
+// At each Y slice we find the weighted midpoint between blue and red units
+// Only considers nearby units (influence radius), so line only deforms where units actually are
 function drawFrontLine(){
   if(!frontCtx||!CW||!CH)return;frontCtx.clearRect(0,0,CW,CH);
   if(gamePhase!=='battle')return;
@@ -1472,45 +1501,69 @@ function drawFrontLine(){
   const rd=G.units?.filter(u=>u.owner==='red'&&!u._dead);
   if(!bl?.length||!rd?.length)return;
 
+  const mW=mapBgW||2000,mH=mapBgH||1200;
+  const STEPS=120; // number of horizontal slices = resolution of line
+  const INFLUENCE=mW*0.35; // max distance a unit affects its Y slice
+  const pts=[];
+
+  // Global fallback X: weighted average of all blues vs reds
+  const blMeanX=bl.reduce((s,u)=>s+u.x,0)/bl.length;
+  const rdMeanX=rd.reduce((s,u)=>s+u.x,0)/rd.length;
+  const globalMidX=(blMeanX+rdMeanX)/2;
+
+  for(let i=0;i<=STEPS;i++){
+    const y=mH*(i/STEPS);
+    // For this Y-slice, gather influence from nearby blue and red units
+    let bSum=0,bW=0,rSum=0,rW=0;
+    for(const u of bl){
+      const dy=Math.abs(u.y-y);if(dy>INFLUENCE)continue;
+      const w=1-dy/INFLUENCE;bSum+=u.x*w;bW+=w;
+    }
+    for(const u of rd){
+      const dy=Math.abs(u.y-y);if(dy>INFLUENCE)continue;
+      const w=1-dy/INFLUENCE;rSum+=u.x*w;rW+=w;
+    }
+    let midX;
+    if(bW>0&&rW>0){
+      // Both sides have influence here — real front
+      midX=(bSum/bW+rSum/rW)/2;
+    } else if(bW>0){
+      // Only blue nearby — line trends toward globalMidX
+      const bX=bSum/bW;midX=(bX+globalMidX*2)/3;
+    } else if(rW>0){
+      // Only red nearby
+      const rX=rSum/rW;midX=(rX+globalMidX*2)/3;
+    } else {
+      // No units nearby — use global midpoint
+      midX=globalMidX;
+    }
+    pts.push({x:midX,y});
+  }
+
+  // Light smoothing (preserve deformation but remove jitter)
+  for(let pass=0;pass<4;pass++){
+    for(let i=1;i<pts.length-1;i++){
+      pts[i].x=(pts[i-1].x*0.25+pts[i].x*0.5+pts[i+1].x*0.25);
+    }
+  }
+
   frontCtx.save();frontCtx.translate(camX,camY);frontCtx.scale(camScale,camScale);
 
-  // Для кожного синього знаходимо найближчого червоного → midpoint
-  // Для кожного червоного знаходимо найближчого синього → midpoint
-  // Об'єднуємо всі midpoints, сортуємо по Y, smooth
-  const midpoints=[];
-  for(const b of bl){let mn=null,md=Infinity;for(const r of rd){const d=Math.hypot(r.x-b.x,r.y-b.y);if(d<md){md=d;mn=r;}}if(mn)midpoints.push({x:(b.x+mn.x)/2,y:(b.y+mn.y)/2,d:md});}
-  for(const r of rd){let mn=null,md=Infinity;for(const b of bl){const d=Math.hypot(b.x-r.x,b.y-r.y);if(d<md){md=d;mn=b;}}if(mn)midpoints.push({x:(r.x+mn.x)/2,y:(r.y+mn.y)/2,d:md});}
-  if(midpoints.length<2){frontCtx.restore();return;}
-
-  // Сортуємо по Y
-  midpoints.sort((a,b)=>a.y-b.y);
-
-  // Sliding average smoothing (3 passes)
-  let pts=[...midpoints];
-  for(let pass=0;pass<3;pass++){pts=pts.map((p,i,arr)=>{const s=arr.slice(Math.max(0,i-2),Math.min(arr.length,i+3));return{x:s.reduce((a,v)=>a+v.x,0)/s.length,y:p.y};});}
-
-  // Remove points too far from map width median (outlier filter)
-  if(pts.length>4){const xs=pts.map(p=>p.x).sort((a,b)=>a-b);const med=xs[Math.floor(xs.length/2)];const spread=(mapBgW||2000)*.4;pts=pts.filter(p=>Math.abs(p.x-med)<spread);}
-  if(pts.length<2){frontCtx.restore();return;}
-
-  const lw=3/camScale;
-  // Shadow glow layers
-  for(const[opacity,width,blur]of[[.15,lw*10,30],[.35,lw*4,12],[.7,lw*2,5],[1,lw*.8,0]]){
-    frontCtx.beginPath();
-    frontCtx.moveTo(pts[0].x,pts[0].y);
-    for(let i=1;i<pts.length-1;i++){const mx=(pts[i].x+pts[i+1].x)/2,my=(pts[i].y+pts[i+1].y)/2;frontCtx.quadraticCurveTo(pts[i].x,pts[i].y,mx,my);}
-    frontCtx.lineTo(pts[pts.length-1].x,pts[pts.length-1].y);
-    frontCtx.strokeStyle=`rgba(255,210,50,${opacity})`;frontCtx.lineWidth=width;frontCtx.lineCap='round';frontCtx.lineJoin='round';
-    frontCtx.shadowColor='rgba(255,180,0,.6)';frontCtx.shadowBlur=blur/camScale;frontCtx.stroke();
+  // Draw black line only — no glow, no shadow (FIX #4)
+  const lw=Math.max(1.5,2.5/camScale);
+  frontCtx.beginPath();
+  frontCtx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length-1;i++){
+    const mx=(pts[i].x+pts[i+1].x)/2,my=(pts[i].y+pts[i+1].y)/2;
+    frontCtx.quadraticCurveTo(pts[i].x,pts[i].y,mx,my);
   }
+  frontCtx.lineTo(pts[pts.length-1].x,pts[pts.length-1].y);
+  frontCtx.strokeStyle='rgba(0,0,0,0.85)';
+  frontCtx.lineWidth=lw;
+  frontCtx.lineCap='round';frontCtx.lineJoin='round';
   frontCtx.shadowBlur=0;
+  frontCtx.stroke();
 
-  // Dot markers at each unit pair midpoint
-  for(const m of midpoints.slice(0,Math.min(midpoints.length,30))){
-    const sz=Math.max(2,Math.min(6,12000/Math.max(1,m.d)))/camScale;
-    frontCtx.beginPath();frontCtx.arc(m.x,m.y,sz,0,Math.PI*2);
-    frontCtx.fillStyle=`rgba(255,230,80,${Math.max(.2,Math.min(.8,1-m.d/400))})`;frontCtx.fill();
-  }
   frontCtx.restore();
 }
 
