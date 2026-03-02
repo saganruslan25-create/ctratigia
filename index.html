@@ -1,19 +1,78 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Web Page</title>
+    <title>Strategy Game</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; }
+        #gameArea { width: 800px; height: 600px; margin: auto; background: #fff; border: 1px solid #ccc; }
+        #adminPanel { display: none; }
+    </style>
 </head>
 <body>
-    <h1>Welcome to My Web Page</h1>
-    <p>Introducing the ГІСТЬ badge for recognition!</p>
-    <div class="legend">
-        <p>This section contains important information.</p>
-        <!-- Additional information -->
-        <div>
-            <p>Some details...</p>
-        </div>
-    </div> <!-- Added the missing closing div tag here -->
+    <h1>Strategy Game</h1>
+    <div id="gameArea"></div>
+    <button id="startGame">Start Game</button>
+    <button id="adminToggle">Toggle Admin Panel</button>
+    <div id="adminPanel">
+        <h2>Admin Panel</h2>
+        <button id="resetGame">Reset Game</button>
+    </div>
+
+    <script>
+        // Game Variables
+        let players = [];
+        let gameActive = false;
+        let mapData;
+
+        // Function to initialize the game
+        function initGame() {
+            // Initialize game elements
+            gameActive = true;
+            if (mapData) {
+                loadMap(mapData);
+            } else {
+                alert('Game map not loaded!');
+            }
+        }
+
+        // Function to start the game
+        document.getElementById('startGame').onclick = function() {
+            initGame();
+        };
+
+        // Function to toggle admin panel
+        document.getElementById('adminToggle').onclick = function() {
+            const panel = document.getElementById('adminPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        };
+
+        // Load map data (Placeholder for map loading logic)
+        function loadMap(data) {
+            const gameArea = document.getElementById('gameArea');
+            gameArea.innerHTML = '<p>Map Loaded: ' + JSON.stringify(data) + '</p>';
+        }
+
+        // Multiplayer support (Placeholder for multiplayer logic)
+        function setupMultiplayer() {
+            // Logic for multiplayer setup...
+            console.log('Multiplayer setup initiated.');
+        }
+
+        // AI Mode (Placeholder logic for AI player)
+        function aiMode() {
+            // AI logic here...
+            console.log('AI Mode Activated.');
+        }
+
+        // Reset game button functionality
+        document.getElementById('resetGame').onclick = function() {
+            // Logic for resetting the game
+            gameActive = false;
+            players = [];
+            alert('Game has been reset!');
+        };
+    </script>
 </body>
 </html>
