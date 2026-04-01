@@ -2,539 +2,609 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>GamePad</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Избушка — Выживание у Костра</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #0a0a14; font-family: 'Georgia', serif; }
+  #canvas { display: block; }
 
-  :root {
-    --bg: #0a0a0c;
-    --panel: #111116;
-    --border: #1e1e28;
-    --btn: #161620;
-    --btn-active: #1a1a2e;
-    --accent: #00e5ff;
-    --accent2: #7c3aed;
-    --warn: #ff4444;
-    --text: #c8c8d8;
-    --dim: #444458;
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Rajdhani', sans-serif;
-    min-height: 100dvh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    touch-action: none;
-  }
-
-  /* Header */
-  .hdr {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 16px 8px;
-    border-bottom: 1px solid var(--border);
-    background: var(--panel);
-  }
-  .hdr-title {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 13px;
-    color: var(--accent);
-    letter-spacing: 2px;
-  }
-  .status-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--warn);
-    box-shadow: 0 0 8px var(--warn);
-    transition: all .3s;
-  }
-  .status-dot.ok { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
-
-  .ip-row {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 8px 16px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--border);
-  }
-  .ip-input {
-    flex: 1;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text);
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 13px;
-    padding: 6px 10px;
-    outline: none;
-  }
-  .ip-input:focus { border-color: var(--accent); }
-  .connect-btn {
-    background: var(--accent2);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 6px 14px;
-    font-family: 'Rajdhani', sans-serif;
-    font-weight: 700;
-    font-size: 13px;
-    letter-spacing: 1px;
-    cursor: pointer;
-    transition: opacity .15s;
-  }
-  .connect-btn:active { opacity: .7; }
-
-  /* Main layout */
-  .main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    padding: 12px;
-    gap: 10px;
-    overflow: hidden;
-  }
-
-  /* Quick action bar */
-  .quick-bar {
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-  }
-
-  /* Controls row */
-  .controls-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 10px;
-  }
-
-  /* WASD cluster */
-  .wasd {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(2, 1fr);
-    gap: 6px;
-    width: 175px;
-  }
-  .wasd .btn-w { grid-column: 2; }
-  .wasd .btn-a { grid-column: 1; }
-  .wasd .btn-s { grid-column: 2; }
-  .wasd .btn-d { grid-column: 3; grid-row: 2; }
-
-  /* Right cluster */
-  .right-cluster {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(2, 1fr);
-    gap: 6px;
-    width: 175px;
-  }
-
-  /* Base button */
-  .btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 60px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--btn);
-    font-family: 'Rajdhani', sans-serif;
-    font-weight: 700;
-    font-size: 16px;
-    letter-spacing: 1px;
-    color: var(--dim);
-    cursor: pointer;
-    transition: color .1s, border-color .1s, background .1s;
-    position: relative;
-    overflow: hidden;
-    -webkit-touch-callout: none;
-  }
-
-  .btn::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: var(--accent);
-    opacity: 0;
-    transition: opacity .1s;
-  }
-
-  .btn.pressed {
-    background: var(--btn-active);
-    border-color: var(--accent);
-    color: var(--accent);
-    box-shadow: 0 0 12px rgba(0, 229, 255, 0.2), inset 0 0 8px rgba(0, 229, 255, 0.05);
-  }
-  .btn.pressed::after { opacity: 0.05; }
-
-  .btn.btn-accent {
-    border-color: #2a1a4a;
-    color: #7c3aed88;
-  }
-  .btn.btn-accent.pressed {
-    border-color: var(--accent2);
-    color: var(--accent2);
-    box-shadow: 0 0 12px rgba(124, 58, 237, 0.3);
-  }
-
-  .btn.btn-danger {
-    border-color: #2a1010;
-    color: #ff444466;
-  }
-  .btn.btn-danger.pressed {
-    border-color: var(--warn);
-    color: var(--warn);
-    box-shadow: 0 0 12px rgba(255, 68, 68, 0.3);
-  }
-
-  .btn-sm {
-    height: 42px;
-    font-size: 12px;
-    border-radius: 8px;
-    flex: 1;
-    letter-spacing: 0.5px;
-  }
-
-  /* Touchpad */
-  .touchpad-wrap {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-  }
-  .touchpad-label {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    color: var(--dim);
-    letter-spacing: 2px;
-  }
-  .touchpad {
-    width: 100%;
-    flex: 1;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    position: relative;
-    overflow: hidden;
-  }
-  .touchpad-inner {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .touchpad-cross {
-    opacity: 0.07;
-  }
-  .touchpad-ripple {
-    position: absolute;
-    width: 40px; height: 40px;
-    border-radius: 50%;
-    border: 1px solid var(--accent);
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.5);
+  #ui {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 18px 24px;
+    display: flex; align-items: center; gap: 20px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
     pointer-events: none;
-    transition: opacity .05s;
   }
-  .touchpad-ripple.show {
-    opacity: 0.6;
-    transform: translate(-50%, -50%) scale(1);
+  .bar-group { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+  .bar-label {
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: rgba(255,255,255,0.6);
+  }
+  .bar-track {
+    height: 8px; background: rgba(255,255,255,0.12);
+    border-radius: 4px; overflow: hidden;
+  }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s, background 0.5s; }
+  #heatFill { background: linear-gradient(to right, #c0392b, #e67e22, #f1c40f); }
+  #fireFill { background: linear-gradient(to right, #8B4513, #CD853F, #FFA500); }
+
+  #wood-count {
+    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 10px; padding: 8px 16px; color: #d4a96a;
+    font-size: 13px; white-space: nowrap;
   }
 
-  /* LMB / RMB */
-  .mouse-btns {
-    display: flex;
-    gap: 4px;
-    height: 44px;
-  }
-  .mbtn {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    font-size: 11px;
-    font-family: 'Share Tech Mono', monospace;
-    color: var(--dim);
-    cursor: pointer;
-    transition: all .1s;
-  }
-  .mbtn.pressed {
-    background: rgba(0,229,255,0.08);
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  /* Sensitivity control */
-  .sens-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 16px;
-    border-top: 1px solid var(--border);
-    background: var(--panel);
-  }
-  .sens-label {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    color: var(--dim);
-    letter-spacing: 1px;
+  #hint {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 30px; padding: 10px 24px;
+    color: rgba(255,255,255,0.7); font-size: 13px; letter-spacing: 0.5px;
+    pointer-events: none; transition: opacity 0.5s;
     white-space: nowrap;
   }
-  input[type=range] {
-    flex: 1;
-    -webkit-appearance: none;
-    height: 2px;
-    background: var(--border);
-    border-radius: 2px;
-    outline: none;
+
+  #action-prompt {
+    position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+    background: rgba(230,130,30,0.85); border-radius: 20px;
+    padding: 8px 20px; color: #fff; font-size: 14px;
+    pointer-events: none; opacity: 0; transition: opacity 0.3s;
+    font-weight: bold; letter-spacing: 0.5px;
   }
-  input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 16px; height: 16px;
-    border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 8px rgba(0,229,255,0.5);
+
+  #overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; color: #fff;
+    opacity: 0; pointer-events: none; transition: opacity 0.8s;
   }
+  #overlay.show { opacity: 1; pointer-events: all; }
+  #overlay h1 { font-size: 42px; letter-spacing: 4px; color: #c0392b; }
+  #overlay p { font-size: 16px; color: rgba(255,255,255,0.6); }
+  #restartBtn {
+    margin-top: 10px; padding: 12px 40px;
+    background: transparent; border: 1px solid rgba(255,255,255,0.4);
+    color: #fff; font-size: 15px; border-radius: 30px;
+    cursor: pointer; letter-spacing: 2px;
+    transition: background 0.3s, border-color 0.3s;
+  }
+  #restartBtn:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.7); }
+
+  #intro {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.9);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; color: #fff; transition: opacity 0.8s;
+  }
+  #intro h1 { font-size: 36px; letter-spacing: 3px; color: #e67e22; }
+  #intro p { color: rgba(255,255,255,0.65); font-size: 14px; max-width: 380px; text-align: center; line-height: 1.7; }
+  #startBtn {
+    margin-top: 10px; padding: 12px 40px;
+    background: #e67e22; border: none;
+    color: #fff; font-size: 15px; border-radius: 30px;
+    cursor: pointer; letter-spacing: 2px;
+    transition: background 0.3s;
+  }
+  #startBtn:hover { background: #d35400; }
+  .controls-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px;
+    margin-top: 4px; font-size: 13px;
+  }
+  .ctrl { color: rgba(255,255,255,0.5); }
+  .ctrl b { color: #e67e22; }
 </style>
 </head>
 <body>
 
-<div class="hdr">
-  <span class="hdr-title">// GAMEPAD</span>
-  <div style="display:flex;align-items:center;gap:8px">
-    <span id="status-txt" style="font-size:11px;color:var(--dim);font-family:'Share Tech Mono',monospace">OFFLINE</span>
-    <div class="status-dot" id="dot"></div>
+<canvas id="canvas"></canvas>
+
+<div id="ui">
+  <div class="bar-group">
+    <div class="bar-label">Тепло тела</div>
+    <div class="bar-track"><div class="bar-fill" id="heatFill" style="width:80%"></div></div>
   </div>
-</div>
-
-<div class="ip-row">
-  <input class="ip-input" id="ip" type="text" placeholder="192.168.1.XX" value="">
-  <button class="connect-btn" onclick="connect()">CONNECT</button>
-</div>
-
-<div class="main">
-
-  <!-- Quick bar: Esc, Tab, Shift, Space, E, R -->
-  <div class="quick-bar">
-    <button class="btn btn-sm btn-danger" data-key="esc">ESC</button>
-    <button class="btn btn-sm" data-key="tab">TAB</button>
-    <button class="btn btn-sm btn-accent" data-key="shift">SHIFT</button>
-    <button class="btn btn-sm btn-accent" data-key="space">SPACE</button>
-    <button class="btn btn-sm" data-key="e">E</button>
-    <button class="btn btn-sm" data-key="r">R</button>
+  <div class="bar-group">
+    <div class="bar-label">Костёр</div>
+    <div class="bar-track"><div class="bar-fill" id="fireFill" style="width:60%"></div></div>
   </div>
+  <div id="wood-count">🪵 Палок: <span id="woodNum">0</span> / 5</div>
+</div>
 
-  <!-- Main controls -->
-  <div class="controls-row">
+<div id="hint">WASD — движение &nbsp;|&nbsp; Мышь — камера &nbsp;|&nbsp; E — действие</div>
+<div id="action-prompt" id="actionPrompt">Нажми E</div>
+<div id="overlay">
+  <h1>ВЫ ЗАМЁРЗЛИ</h1>
+  <p>Тепло упало до нуля. Поддерживайте костёр и не уходите далеко!</p>
+  <button id="restartBtn">НАЧАТЬ ЗАНОВО</button>
+</div>
 
-    <!-- WASD -->
-    <div class="wasd">
-      <button class="btn btn-w" data-key="w">W</button>
-      <button class="btn btn-a" data-key="a">A</button>
-      <button class="btn btn-s" data-key="s">S</button>
-      <button class="btn btn-d" data-key="d">D</button>
-    </div>
-
-    <!-- Touchpad in middle -->
-    <div class="touchpad-wrap">
-      <span class="touchpad-label">MOUSE</span>
-      <div class="touchpad" id="touchpad">
-        <div class="touchpad-inner">
-          <svg class="touchpad-cross" width="60" height="60" viewBox="0 0 60 60">
-            <line x1="30" y1="0" x2="30" y2="60" stroke="#fff" stroke-width="1"/>
-            <line x1="0" y1="30" x2="60" y2="30" stroke="#fff" stroke-width="1"/>
-            <circle cx="30" cy="30" r="3" fill="#fff"/>
-          </svg>
-        </div>
-        <div class="touchpad-ripple" id="ripple"></div>
-      </div>
-      <div class="mouse-btns">
-        <div class="mbtn" id="lmb">LMB</div>
-        <div class="mbtn" id="rmb">RMB</div>
-      </div>
-    </div>
-
-    <!-- Right action cluster: F, G, Q, C, 1, 2 -->
-    <div class="right-cluster">
-      <button class="btn btn-accent" data-key="f">F</button>
-      <button class="btn btn-accent" data-key="g">G</button>
-      <button class="btn btn-accent" data-key="q">Q</button>
-      <button class="btn" data-key="c">C</button>
-      <button class="btn" data-key="1">1</button>
-      <button class="btn" data-key="2">2</button>
-    </div>
-
+<div id="intro">
+  <h1>🔥 Избушка</h1>
+  <p>Вы застряли в лесу зимой. В избушке есть костёр — он ваша единственная надежда. Собирайте палки на улице и поддерживайте огонь, иначе замёрзнете.</p>
+  <div class="controls-grid">
+    <div class="ctrl"><b>WASD</b> — движение</div>
+    <div class="ctrl"><b>Мышь</b> — камера</div>
+    <div class="ctrl"><b>E</b> — подобрать / бросить</div>
+    <div class="ctrl"><b>Клик</b> — захват мыши</div>
   </div>
+  <button id="startBtn">НАЧАТЬ ИГРУ</button>
 </div>
 
-<div class="sens-row">
-  <span class="sens-label">SENS</span>
-  <input type="range" id="sens" min="1" max="20" value="8">
-  <span class="sens-label" id="sens-val">8</span>
-</div>
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-let serverIP = localStorage.getItem('gp_ip') || '';
-let sensitivity = 8;
-let connected = false;
-let touchStartX = 0, touchStartY = 0;
-let lastTouchX = 0, lastTouchY = 0;
-let mouseMoveBuffer = {dx: 0, dy: 0};
-let sendInterval = null;
+// ─── SCENE SETUP ───────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor(0x0a0f1a);
 
-// Restore IP
-const ipInput = document.getElementById('ip');
-if (serverIP) ipInput.value = serverIP;
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0a0f1a, 0.045);
 
-// Sensitivity
-document.getElementById('sens').addEventListener('input', function() {
-  sensitivity = parseInt(this.value);
-  document.getElementById('sens-val').textContent = sensitivity;
-});
+const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 200);
+camera.position.set(0, 1.7, 0);
 
-function getURL() {
-  const ip = ipInput.value.trim();
-  return `http://${ip}:5000`;
+function resize() {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── LIGHTING ──────────────────────────────────────────────────────────────
+const ambient = new THREE.AmbientLight(0x1a2a3a, 0.4);
+scene.add(ambient);
+
+const moonLight = new THREE.DirectionalLight(0x6688bb, 0.3);
+moonLight.position.set(10, 20, 10);
+scene.add(moonLight);
+
+const fireLight = new THREE.PointLight(0xff6b1a, 3, 12);
+fireLight.position.set(0, 1, 0);
+fireLight.castShadow = true;
+scene.add(fireLight);
+
+// ─── TEXTURES & MATERIALS ──────────────────────────────────────────────────
+const woodMat = new THREE.MeshLambertMaterial({ color: 0x6b3a1f });
+const logMat = new THREE.MeshLambertMaterial({ color: 0x8B5E3C });
+const roofMat = new THREE.MeshLambertMaterial({ color: 0x4a2a0f });
+const snowMat = new THREE.MeshLambertMaterial({ color: 0xddeeff });
+const stoneMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+const groundMat = new THREE.MeshLambertMaterial({ color: 0xc8dde8 });
+
+// ─── GROUND ────────────────────────────────────────────────────────────────
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Snow bumps
+for (let i = 0; i < 40; i++) {
+  const r = 1.5 + Math.random() * 1.5;
+  const bump = new THREE.Mesh(
+    new THREE.SphereGeometry(r, 6, 4),
+    new THREE.MeshLambertMaterial({ color: 0xd5eaf5 })
+  );
+  const angle = Math.random() * Math.PI * 2;
+  const dist = 4 + Math.random() * 18;
+  bump.position.set(Math.cos(angle) * dist, -r + 0.15, Math.sin(angle) * dist);
+  scene.add(bump);
 }
 
-async function connect() {
-  try {
-    const r = await fetch(getURL() + '/ping', {signal: AbortSignal.timeout(2000)});
-    const d = await r.json();
-    if (d.status === 'ok') {
-      connected = true;
-      serverIP = ipInput.value.trim();
-      localStorage.setItem('gp_ip', serverIP);
-      document.getElementById('dot').className = 'status-dot ok';
-      document.getElementById('status-txt').textContent = 'ONLINE';
+// ─── CABIN ─────────────────────────────────────────────────────────────────
+function makeCabin() {
+  const g = new THREE.Group();
+
+  // Floor
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(7, 0.15, 6), new THREE.MeshLambertMaterial({ color: 0x3d2210 }));
+  floor.position.set(0, 0.075, 0);
+  floor.receiveShadow = true;
+  g.add(floor);
+
+  // Log walls
+  const wallH = 2.4;
+  const rows = 8;
+  const logR = wallH / rows / 2;
+  const wallColor = [0x7a4a22, 0x8B5528, 0x6b3a18, 0x7d4e20];
+
+  function makeWall(wx, wz, wW, wH, rot) {
+    for (let r = 0; r < rows; r++) {
+      const c = wallColor[r % wallColor.length];
+      const log = new THREE.Mesh(
+        new THREE.CylinderGeometry(logR, logR, wW, 8),
+        new THREE.MeshLambertMaterial({ color: c })
+      );
+      if (rot) log.rotation.y = Math.PI / 2;
+      log.position.set(wx, logR * 2 * r + logR + 0.15, wz);
+      log.castShadow = true;
+      g.add(log);
     }
-  } catch(e) {
-    document.getElementById('dot').className = 'status-dot';
-    document.getElementById('status-txt').textContent = 'ERROR';
-    setTimeout(() => document.getElementById('status-txt').textContent = 'OFFLINE', 2000);
+  }
+
+  makeWall(0, -3, 7.2, wallH, false);      // front
+  makeWall(0, 3, 7.2, wallH, false);       // back
+  makeWall(-3.5, 0, 6.2, wallH, true);     // left
+  makeWall(3.5, 0, 6.2, wallH, true);      // right
+
+  // Door opening (front wall partial override)
+  // We skip logs in front center — handled visually by gap
+  const doorFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2, 2.2, 0.15),
+    new THREE.MeshLambertMaterial({ color: 0x3a1a08 })
+  );
+  doorFrame.position.set(0, 1.1 + 0.15, -3.0);
+  g.add(doorFrame);
+
+  // Roof
+  const roofGeo = new THREE.ConeGeometry(5.5, 2.2, 4);
+  const roof = new THREE.Mesh(roofGeo, roofMat);
+  roof.position.set(0, wallH + 0.15 + 1.1, 0);
+  roof.rotation.y = Math.PI / 4;
+  roof.castShadow = true;
+  g.add(roof);
+
+  // Snow on roof
+  const snowRoof = new THREE.Mesh(
+    new THREE.ConeGeometry(5.4, 0.5, 4),
+    new THREE.MeshLambertMaterial({ color: 0xe8f4fc })
+  );
+  snowRoof.position.set(0, wallH + 0.15 + 2.0, 0);
+  snowRoof.rotation.y = Math.PI / 4;
+  g.add(snowRoof);
+
+  // Chimney
+  const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.2, 0.6), stoneMat);
+  chimney.position.set(1.5, wallH + 0.15 + 2.0, 0.5);
+  chimney.castShadow = true;
+  g.add(chimney);
+
+  // Windows
+  function makeWindow(x, z, rotY) {
+    const wg = new THREE.Group();
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.8, 0.12), new THREE.MeshLambertMaterial({ color: 0x3a1a08 }));
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.55, 0.05), new THREE.MeshLambertMaterial({ color: 0xaaddff, transparent: true, opacity: 0.5, emissive: 0x224422 }));
+    wg.add(frame); wg.add(glass);
+    wg.position.set(x, 1.4, z);
+    wg.rotation.y = rotY;
+    g.add(wg);
+  }
+  makeWindow(-2.0, -2.98, 0);
+  makeWindow(2.0, -2.98, 0);
+  makeWindow(-3.48, 0, Math.PI / 2);
+
+  g.position.set(0, 0, 0);
+  scene.add(g);
+}
+makeCabin();
+
+// ─── FIREPLACE ─────────────────────────────────────────────────────────────
+const stoneRingMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
+const stoneRing = new THREE.Group();
+for (let i = 0; i < 8; i++) {
+  const angle = (i / 8) * Math.PI * 2;
+  const stone = new THREE.Mesh(new THREE.SphereGeometry(0.18, 5, 4), stoneRingMat);
+  stone.position.set(Math.cos(angle) * 0.55, 0.18, Math.sin(angle) * 0.55);
+  stone.scale.set(1.2, 0.7, 1.0);
+  stoneRing.add(stone);
+}
+stoneRing.position.set(0, 0.15, 0.5);
+scene.add(stoneRing);
+
+// Ash base
+const ash = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.05, 12), new THREE.MeshLambertMaterial({ color: 0x444444 }));
+ash.position.set(0, 0.18, 0.5);
+scene.add(ash);
+
+fireLight.position.set(0, 0.8, 0.5);
+
+// Fire particles (fake flame meshes)
+const flames = [];
+const flameMat = new THREE.MeshBasicMaterial({ color: 0xff6b00, transparent: true, opacity: 0.9, depthWrite: false });
+const flameMat2 = new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.85, depthWrite: false });
+for (let i = 0; i < 6; i++) {
+  const geo = new THREE.ConeGeometry(0.08 + Math.random() * 0.06, 0.35 + Math.random() * 0.2, 5);
+  const mat = i % 2 === 0 ? flameMat : flameMat2;
+  const flame = new THREE.Mesh(geo, mat.clone());
+  const angle = (i / 6) * Math.PI * 2;
+  flame.position.set(
+    Math.cos(angle) * 0.18,
+    0.35,
+    0.5 + Math.sin(angle) * 0.18
+  );
+  flame._baseY = flame.position.y;
+  flame._phase = Math.random() * Math.PI * 2;
+  flame._speed = 2 + Math.random() * 2;
+  scene.add(flame);
+  flames.push(flame);
+}
+
+// ─── TREES ─────────────────────────────────────────────────────────────────
+function makeTree(x, z) {
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x4a2f10 });
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x1a4020 });
+  const snowLeafMat = new THREE.MeshLambertMaterial({ color: 0xd0e8f0 });
+
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 1.2, 6), trunkMat);
+  trunk.position.set(x, 0.6, z);
+  trunk.castShadow = true;
+  scene.add(trunk);
+
+  const heights = [0, 0.5, 1.0];
+  const radii = [0.9, 0.65, 0.4];
+  for (let i = 0; i < 3; i++) {
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(radii[i], 1.2, 7), leafMat);
+    cone.position.set(x, 1.2 + heights[i], z);
+    cone.castShadow = true;
+    scene.add(cone);
+    if (i === 2) {
+      const snow = new THREE.Mesh(new THREE.ConeGeometry(radii[i] * 0.8, 0.3, 7), snowLeafMat);
+      snow.position.set(x, 2.3, z);
+      scene.add(snow);
+    }
   }
 }
 
-async function send(path, data) {
-  if (!connected) return;
-  try {
-    await fetch(getURL() + path, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(data),
-      signal: AbortSignal.timeout(500)
-    });
-  } catch(e) {}
+const treePositions = [
+  [-8, -8], [-10, -4], [-9, 2], [-8, 7], [-6, 10],
+  [8, -8], [10, -3], [9, 3], [8, 8], [6, 10],
+  [-3, -10], [0, -11], [3, -10], [-2, 12], [2, 12],
+  [-14, 0], [14, 0], [-12, -12], [12, -12],
+];
+treePositions.forEach(([x, z]) => makeTree(x, z));
+
+// ─── STICKS ────────────────────────────────────────────────────────────────
+const stickPositions = [
+  [-6, -6], [-7, 1], [-5, 5], [6, -5], [7, 2],
+  [5, 6], [-3, -8], [3, -8], [-8, -2], [8, -1],
+  [0, -9], [-4, 8], [4, 8]
+];
+
+const stickObjs = [];
+const stickMeshMat = new THREE.MeshLambertMaterial({ color: 0x7a4a1a });
+
+stickPositions.forEach(([x, z]) => {
+  const g = new THREE.Group();
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.8, 5), stickMeshMat);
+  stick.rotation.z = Math.PI / 2;
+  stick.rotation.y = Math.random() * Math.PI;
+  g.add(stick);
+  g.position.set(x, 0.05, z);
+  scene.add(g);
+  stickObjs.push({ mesh: g, collected: false, x, z });
+});
+
+// ─── STARS ─────────────────────────────────────────────────────────────────
+const starGeo = new THREE.BufferGeometry();
+const starVerts = [];
+for (let i = 0; i < 800; i++) {
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const r = 80 + Math.random() * 20;
+  starVerts.push(r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+}
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
+const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.25, transparent: true, opacity: 0.8 }));
+scene.add(stars);
+
+// ─── PLAYER ────────────────────────────────────────────────────────────────
+const player = {
+  pos: new THREE.Vector3(0, 1.7, 2.5),
+  vel: new THREE.Vector3(),
+  yaw: 0, pitch: 0,
+  speed: 4.5,
+  wood: 0, maxWood: 5
+};
+
+const keys = {};
+document.addEventListener('keydown', e => { keys[e.code] = true; });
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// Mouse look
+let pointerLocked = false;
+document.addEventListener('click', () => { canvas.requestPointerLock(); });
+document.addEventListener('pointerlockchange', () => { pointerLocked = document.pointerLockElement === canvas; });
+document.addEventListener('mousemove', e => {
+  if (!pointerLocked) return;
+  player.yaw -= e.movementX * 0.002;
+  player.pitch -= e.movementY * 0.002;
+  player.pitch = Math.max(-1.2, Math.min(0.8, player.pitch));
+});
+
+// ─── GAME STATE ────────────────────────────────────────────────────────────
+let heat = 80, fire = 60;
+let gameOver = false, started = false;
+
+const HOUSE_BOUNDS = { minX: -3.3, maxX: 3.3, minZ: -2.8, maxZ: 2.7 };
+function insideHouse(pos) {
+  return pos.x > HOUSE_BOUNDS.minX && pos.x < HOUSE_BOUNDS.maxX &&
+         pos.z > HOUSE_BOUNDS.minZ && pos.z < HOUSE_BOUNDS.maxZ;
 }
 
-// Key buttons
-document.querySelectorAll('.btn[data-key]').forEach(btn => {
-  const key = btn.dataset.key;
+function nearFire(pos) {
+  const dx = pos.x - 0, dz = pos.z - 0.5;
+  return Math.sqrt(dx*dx + dz*dz) < 1.8;
+}
 
-  // Touch events for hold
-  btn.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    btn.classList.add('pressed');
-    send('/key/down', {key});
-  }, {passive: false});
+function nearStick(pos) {
+  for (const s of stickObjs) {
+    if (s.collected) continue;
+    const dx = pos.x - s.x, dz = pos.z - s.z;
+    if (Math.sqrt(dx*dx + dz*dz) < 1.4) return s;
+  }
+  return null;
+}
 
-  btn.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    btn.classList.remove('pressed');
-    send('/key/up', {key});
-  }, {passive: false});
+// ─── E KEY ACTION ──────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.code !== 'KeyE' || gameOver || !started) return;
+  if (insideHouse(player.pos) && nearFire(player.pos) && player.wood > 0) {
+    player.wood--;
+    fire = Math.min(100, fire + 30);
+    document.getElementById('woodNum').textContent = player.wood;
+    return;
+  }
+  if (!insideHouse(player.pos) && player.wood < player.maxWood) {
+    const s = nearStick(player.pos);
+    if (s) {
+      s.collected = true;
+      s.mesh.visible = false;
+      player.wood++;
+      document.getElementById('woodNum').textContent = player.wood;
+    }
+  }
+});
 
-  btn.addEventListener('touchcancel', (e) => {
-    btn.classList.remove('pressed');
-    send('/key/up', {key});
+// ─── COLLISION ─────────────────────────────────────────────────────────────
+function resolveCollision(pos) {
+  const HB = HOUSE_BOUNDS;
+  const inside = insideHouse(pos);
+
+  if (!inside) {
+    // Can't walk through walls from outside (unless near door)
+    const nearDoor = Math.abs(pos.x) < 0.7 && pos.z > HB.maxZ - 0.3 && pos.z < HB.maxZ + 1.0;
+    if (!nearDoor) {
+      if (pos.x > HB.minX && pos.x < HB.maxX) {
+        if (pos.z > HB.minZ && pos.z < HB.maxZ + 0.4) {
+          if (pos.z < 0) pos.z = HB.minZ - 0.01;
+          else pos.z = HB.maxZ + 0.01;
+        }
+      }
+      if (pos.z > HB.minZ && pos.z < HB.maxZ) {
+        if (pos.x > HB.minX - 0.4 && pos.x < HB.maxX + 0.4) {
+          if (pos.x < 0) pos.x = HB.minX - 0.01;
+          else pos.x = HB.maxX + 0.01;
+        }
+      }
+    }
+  } else {
+    // Inside: prevent going through walls
+    pos.x = Math.max(HB.minX + 0.3, Math.min(HB.maxX - 0.3, pos.x));
+    pos.z = Math.max(HB.minZ + 0.3, Math.min(HB.maxZ - 0.3, pos.z));
+    // Door
+    const nearDoor2 = Math.abs(pos.x) < 0.7 && pos.z > HB.maxZ - 0.6;
+    if (nearDoor2) pos.z = Math.min(pos.z, HB.maxZ + 0.8);
+  }
+
+  // World bounds
+  pos.x = Math.max(-25, Math.min(25, pos.x));
+  pos.z = Math.max(-25, Math.min(25, pos.z));
+  pos.y = 1.7;
+}
+
+// ─── UI ────────────────────────────────────────────────────────────────────
+function updateUI() {
+  document.getElementById('heatFill').style.width = heat + '%';
+  document.getElementById('fireFill').style.width = fire + '%';
+  const hf = document.getElementById('heatFill');
+  if (heat < 25) hf.style.background = '#c0392b';
+  else if (heat < 50) hf.style.background = 'linear-gradient(to right,#c0392b,#e67e22)';
+  else hf.style.background = 'linear-gradient(to right,#c0392b,#e67e22,#f1c40f)';
+
+  // Action prompt
+  const ap = document.getElementById('action-prompt');
+  const p = player.pos;
+  if (insideHouse(p) && nearFire(p) && player.wood > 0) {
+    ap.textContent = '[E] Бросить палку в огонь';
+    ap.style.opacity = '1';
+  } else if (!insideHouse(p) && nearStick(p) && player.wood < player.maxWood) {
+    ap.textContent = '[E] Подобрать палку';
+    ap.style.opacity = '1';
+  } else {
+    ap.style.opacity = '0';
+  }
+}
+
+// ─── OVERLAY ───────────────────────────────────────────────────────────────
+document.getElementById('restartBtn').addEventListener('click', () => {
+  document.getElementById('overlay').classList.remove('show');
+  heat = 80; fire = 60; gameOver = false;
+  player.pos.set(0, 1.7, 2.5); player.wood = 0;
+  document.getElementById('woodNum').textContent = '0';
+  stickObjs.forEach(s => { s.collected = false; s.mesh.visible = true; });
+});
+
+document.getElementById('startBtn').addEventListener('click', () => {
+  document.getElementById('intro').style.opacity = '0';
+  setTimeout(() => document.getElementById('intro').style.display = 'none', 800);
+  started = true;
+  canvas.requestPointerLock();
+});
+
+// ─── GAME LOOP ─────────────────────────────────────────────────────────────
+let prev = performance.now();
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min((now - prev) / 1000, 0.05);
+  prev = now;
+
+  // Fire & heat decay
+  if (started && !gameOver) {
+    fire = Math.max(0, fire - 2.5 * dt);
+    const inside = insideHouse(player.pos);
+    const nf = nearFire(player.pos);
+    const heatDecay = inside ? 1.8 : 5;
+    const heatGain = (nf && fire > 0) ? 10 : 0;
+    heat = Math.max(0, Math.min(100, heat - heatDecay * dt + heatGain * dt));
+
+    if (heat <= 0 && !gameOver) {
+      gameOver = true;
+      document.getElementById('overlay').classList.add('show');
+    }
+  }
+
+  // Fire visuals
+  const fi = fire / 100;
+  fireLight.intensity = fi > 0 ? 2.5 * fi + Math.sin(now * 0.007) * 0.4 * fi : 0;
+  fireLight.color.setHSL(0.07 + Math.sin(now * 0.005) * 0.02, 1, 0.55);
+
+  const t = now * 0.001;
+  flames.forEach((f, i) => {
+    const alive = fire > 2;
+    f.visible = alive;
+    if (alive) {
+      f.position.y = f._baseY + Math.sin(t * f._speed + f._phase) * 0.08 * fi;
+      f.scale.y = fi * (0.7 + Math.sin(t * f._speed * 1.3 + f._phase) * 0.3);
+      f.scale.x = fi * (0.8 + Math.sin(t * f._speed + f._phase + 1) * 0.2);
+      f.material.opacity = 0.6 + Math.sin(t * f._speed + f._phase) * 0.3;
+    }
   });
-});
 
-// Mouse buttons
-function setupMouseBtn(id, button) {
-  const el = document.getElementById(id);
-  el.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    el.classList.add('pressed');
-    send('/mouse/click', {button});
-  }, {passive: false});
-  el.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    setTimeout(() => el.classList.remove('pressed'), 100);
-  }, {passive: false});
-}
-setupMouseBtn('lmb', 'left');
-setupMouseBtn('rmb', 'right');
+  // Ambient flicker
+  ambient.intensity = 0.3 + fi * 0.15 + Math.sin(t * 3.7) * 0.05 * fi;
 
-// Touchpad mouse movement
-const pad = document.getElementById('touchpad');
-const ripple = document.getElementById('ripple');
+  // Player movement
+  if (!gameOver && started) {
+    const moveDir = new THREE.Vector3();
+    if (keys['KeyW'] || keys['ArrowUp']) moveDir.z -= 1;
+    if (keys['KeyS'] || keys['ArrowDown']) moveDir.z += 1;
+    if (keys['KeyA'] || keys['ArrowLeft']) moveDir.x -= 1;
+    if (keys['KeyD'] || keys['ArrowRight']) moveDir.x += 1;
 
-// Buffer & send mouse moves at 30fps
-sendInterval = setInterval(() => {
-  if (mouseMoveBuffer.dx !== 0 || mouseMoveBuffer.dy !== 0) {
-    send('/mouse/move', {dx: mouseMoveBuffer.dx, dy: mouseMoveBuffer.dy});
-    mouseMoveBuffer = {dx: 0, dy: 0};
+    if (moveDir.length() > 0) {
+      moveDir.normalize();
+      const yawQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, player.yaw, 0));
+      moveDir.applyQuaternion(yawQ);
+      player.pos.addScaledVector(moveDir, player.speed * dt);
+    }
+
+    resolveCollision(player.pos);
   }
-}, 33);
 
-pad.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  const t = e.touches[0];
-  touchStartX = t.clientX;
-  touchStartY = t.clientY;
-  lastTouchX = t.clientX;
-  lastTouchY = t.clientY;
-  // Show ripple
-  const rect = pad.getBoundingClientRect();
-  ripple.style.left = (t.clientX - rect.left) + 'px';
-  ripple.style.top = (t.clientY - rect.top) + 'px';
-  ripple.classList.add('show');
-}, {passive: false});
+  // Camera
+  camera.position.copy(player.pos);
+  const euler = new THREE.Euler(player.pitch, player.yaw, 0, 'YXZ');
+  camera.quaternion.setFromEuler(euler);
 
-pad.addEventListener('touchmove', (e) => {
-  e.preventDefault();
-  const t = e.touches[0];
-  const dx = Math.round((t.clientX - lastTouchX) * sensitivity * 0.5);
-  const dy = Math.round((t.clientY - lastTouchY) * sensitivity * 0.5);
-  mouseMoveBuffer.dx += dx;
-  mouseMoveBuffer.dy += dy;
-  lastTouchX = t.clientX;
-  lastTouchY = t.clientY;
-  // Move ripple
-  const rect = pad.getBoundingClientRect();
-  ripple.style.left = (t.clientX - rect.left) + 'px';
-  ripple.style.top = (t.clientY - rect.top) + 'px';
-}, {passive: false});
+  updateUI();
+  renderer.render(scene, camera);
+}
 
-pad.addEventListener('touchend', (e) => {
-  e.preventDefault();
-  ripple.classList.remove('show');
-}, {passive: false});
-
-// Release all on page hide
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) send('/release_all', {});
-});
-
-// Auto-connect if IP saved
-if (serverIP) setTimeout(connect, 500);
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
