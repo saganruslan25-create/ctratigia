@@ -316,6 +316,7 @@
           <select id="typeSelect"></select>
         </div>
       </div>
+      <div class="hint" id="typeSelectHint" style="margin-top:-2px;"></div>
       <div class="row">
         <div class="col" style="flex:1">
           <label class="field-label">Назва для наступної провінції (опційно)</label>
@@ -368,6 +369,48 @@
       </div>
       <div class="hint">Якщо увімкнено «Розбити...», кожен Polygon/MultiPolygon буде автоматично розбитий на дрібні провінції (згідно з повзунками «Розміру» та «Хаотичності»). Якщо вимкнено — кожна область стане однією великою провінцією. Після імпорту одразу можна натиснути «Завантажити province_map.png».</div>
       <div class="hint" id="geojsonStatus"></div>
+    </div>
+
+    <!-- SETTLEMENTS (POINT) IMPORT -->
+    <div class="section">
+      <h2>Імпорт міст/сіл (точки → провінції)</h2>
+      <label class="field-label">GeoJSON з точками (Point), властивості: name, type</label>
+      <input type="file" id="importSettlements" accept=".json,.geojson,application/geo+json">
+      <div class="row" style="margin-top:8px;">
+        <div class="col">
+          <label class="field-label">minLon</label>
+          <input type="number" id="settMinLon" value="22.1372" step="any">
+        </div>
+        <div class="col">
+          <label class="field-label">maxLon</label>
+          <input type="number" id="settMaxLon" value="40.2272" step="any">
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <label class="field-label">minLat</label>
+          <input type="number" id="settMinLat" value="44.3877" step="any">
+        </div>
+        <div class="col">
+          <label class="field-label">maxLat</label>
+          <input type="number" id="settMaxLat" value="52.3738" step="any">
+        </div>
+      </div>
+      <div class="hint">За замовчуванням тут вже стоять межі карти України (той самий bounding box, що й у вашому вихідному GeoJSON областей). Змінюйте тільки якщо імпортували інший контур.</div>
+      <div class="row">
+        <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
+          <input type="checkbox" id="settKeepAspect" checked style="width:auto;">
+          Зберігати географічні пропорції (як при імпорті кордонів)
+        </label>
+      </div>
+      <div class="row">
+        <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
+          <input type="checkbox" id="settOverwrite" checked style="width:auto;">
+          Якщо точка потрапляє в існуючу провінцію — перейменувати її (замість малювання нової)
+        </label>
+      </div>
+      <div class="hint">Кожна точка стане окремою провінцією з відповідним типом (metropolis/city/town/village) і назвою, або перейменує provincію під собою, якщо увімкнено опцію вище. Власник береться з поля «Власник» вище.</div>
+      <div class="hint" id="settStatus"></div>
     </div>
 
     <!-- IMPORT (continue previous work) -->
@@ -447,6 +490,7 @@
   <div class="field">
     <label class="field-label">Тип</label>
     <select id="infoType"></select>
+    <div class="hint" id="infoTypeHint" style="margin-top:4px;"></div>
   </div>
   <div class="field" style="font-family:var(--mono); font-size:11px; color:var(--text-dim);">
     RGB: <span id="infoRgb"></span>
@@ -467,13 +511,57 @@
   let nextId = 1;
   let owners = ["Без власника"];
   const TYPES = [
+    { value: "metropolis", label: "Метрополіс / Столиця" },
     { value: "city",     label: "Місто" },
+    { value: "town",     label: "Містечко" },
     { value: "province", label: "Провінція / область" },
     { value: "village",  label: "Село" },
     { value: "water",    label: "Вода" },
     { value: "bridge",   label: "Міст" }
   ];
-  const DEFAULT_TYPE = TYPES[1].value; // "province"
+  const DEFAULT_TYPE = "province";
+
+  // Ігрова економічна логіка для населених пунктів (типи-поселення).
+  // Ці дані потрапляють у meta.typeDefinitions при кожному експорті JSON,
+  // тож ваш ігровий рушій одразу знає, що означає кожен тип, без хардкоду.
+  const TYPE_DEFINITIONS = {
+    metropolis: {
+      label: "Метрополіс / Столиця",
+      description: "Найвищий рівень прибутку, швидкий набір військ.",
+      incomeMultiplier: 3.0,
+      recruitSpeedMultiplier: 2.0,
+      hasFactories: true,
+      producesFood: false,
+      isTradeHub: false
+    },
+    city: {
+      label: "Місто",
+      description: "Базова економіка, доступні військові заводи.",
+      incomeMultiplier: 1.5,
+      recruitSpeedMultiplier: 1.0,
+      hasFactories: true,
+      producesFood: false,
+      isTradeHub: false
+    },
+    town: {
+      label: "Містечко",
+      description: "Середня економіка, торговий вузол.",
+      incomeMultiplier: 1.0,
+      recruitSpeedMultiplier: 0.75,
+      hasFactories: false,
+      producesFood: false,
+      isTradeHub: true
+    },
+    village: {
+      label: "Село",
+      description: "Виробляє їжу (робітники ферм), повільний набір.",
+      incomeMultiplier: 0.5,
+      recruitSpeedMultiplier: 0.4,
+      hasFactories: false,
+      producesFood: true,
+      isTradeHub: false
+    }
+  };
   let provinces = {}; // id -> {name, owner, type, color:[r,g,b]}
   let currentTool = "pen";
   let selectedProvinceId = null;
@@ -551,6 +639,20 @@
     return t ? t.label : (value || DEFAULT_TYPE);
   }
 
+  function typeHintText(value){
+    const def = TYPE_DEFINITIONS[value];
+    if (!def) return '';
+    return `${def.description} (дохід ×${def.incomeMultiplier}, набір військ ×${def.recruitSpeedMultiplier}${def.hasFactories ? ', військові заводи' : ''}${def.isTradeHub ? ', торговий вузол' : ''}${def.producesFood ? ', виробляє їжу' : ''})`;
+  }
+  function wireTypeHint(selectId, hintId){
+    const sel = document.getElementById(selectId);
+    const hint = document.getElementById(hintId);
+    if (!sel || !hint) return;
+    const update = () => { hint.textContent = typeHintText(sel.value); };
+    sel.addEventListener('change', update);
+    update();
+  }
+
   function refreshTypeSelects(){
     const sels = [document.getElementById('typeSelect'), document.getElementById('infoType')];
     sels.forEach(sel => {
@@ -562,6 +664,7 @@
         sel.appendChild(opt);
       });
       sel.value = TYPES.some(t => t.value === prev) ? prev : DEFAULT_TYPE;
+      sel.dispatchEvent(new Event('change'));
     });
   }
 
@@ -988,6 +1091,7 @@
     document.getElementById('infoOwner').value = p.owner;
     refreshTypeSelects();
     document.getElementById('infoType').value = p.type || DEFAULT_TYPE;
+    document.getElementById('infoType').dispatchEvent(new Event('change'));
     refreshProvinceList();
   }
   document.getElementById('infoClose').addEventListener('click', () => {
@@ -1208,7 +1312,11 @@
   document.getElementById('btnExportJson').addEventListener('click', () => {
     const exportSize = parseInt(document.getElementById('exportSize').value, 10) || SIZE;
     const out = {
-      meta: { width: exportSize, height: exportSize, originalCanvasSize: SIZE, nextId: nextId, generated: new Date().toISOString() },
+      meta: {
+        width: exportSize, height: exportSize, originalCanvasSize: SIZE, nextId: nextId,
+        generated: new Date().toISOString(),
+        typeDefinitions: TYPE_DEFINITIONS
+      },
       provinces: {}
     };
     Object.keys(provinces).forEach(id => {
@@ -1507,6 +1615,111 @@
     reader.readAsText(file);
   });
 
+  // ---------------- SETTLEMENTS (POINT) IMPORT ----------------
+  const SETTLEMENT_RADIUS = { metropolis: 14, city: 9, town: 5, village: 3 };
+
+  document.getElementById('importSettlements').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('settStatus');
+    statusEl.textContent = 'Читання файлу…';
+    const reader = new FileReader();
+    reader.onload = () => {
+      let geojson;
+      try {
+        geojson = JSON.parse(reader.result);
+      } catch(err){
+        statusEl.textContent = 'Помилка читання GeoJSON: ' + err.message;
+        return;
+      }
+
+      let features = [];
+      if (geojson.type === 'FeatureCollection') features = geojson.features || [];
+      else if (geojson.type === 'Feature') features = [geojson];
+      features = features.filter(f => f.geometry && f.geometry.type === 'Point');
+      if (!features.length){
+        statusEl.textContent = 'У файлі не знайдено точок (Point).';
+        e.target.value = '';
+        return;
+      }
+
+      const minLon = parseFloat(document.getElementById('settMinLon').value);
+      const maxLon = parseFloat(document.getElementById('settMaxLon').value);
+      const minLat = parseFloat(document.getElementById('settMinLat').value);
+      const maxLat = parseFloat(document.getElementById('settMaxLat').value);
+      const keepAspect = document.getElementById('settKeepAspect').checked;
+      const overwrite = document.getElementById('settOverwrite').checked;
+
+      let project;
+      if (keepAspect){
+        const centerLat = (minLat + maxLat) / 2;
+        const lonCorrection = Math.cos(centerLat * Math.PI / 180);
+        const lonSpan = Math.max(1e-9, (maxLon - minLon) * lonCorrection);
+        const latSpan = Math.max(1e-9, (maxLat - minLat));
+        const span = Math.max(lonSpan, latSpan);
+        const scale = SIZE / span;
+        const offX = (SIZE - lonSpan * scale) / 2;
+        const offY = (SIZE - latSpan * scale) / 2;
+        project = (lon, lat) => ({
+          x: (lon - minLon) * lonCorrection * scale + offX,
+          y: (maxLat - lat) * scale + offY
+        });
+      } else {
+        const scaleX = SIZE / Math.max(1e-9, (maxLon - minLon));
+        const scaleY = SIZE / Math.max(1e-9, (maxLat - minLat));
+        project = (lon, lat) => ({
+          x: (lon - minLon) * scaleX,
+          y: (maxLat - lat) * scaleY
+        });
+      }
+
+      pushHistory();
+      const owner = document.getElementById('ownerSelect').value;
+      let created = 0, renamed = 0, skipped = 0;
+
+      features.forEach((f) => {
+        const [lon, lat] = f.geometry.coordinates;
+        const props = f.properties || {};
+        const name = props.name || props.NAME || props.Name || 'Населений пункт';
+        let type = (props.type || props.place || 'town').toLowerCase();
+        if (!SETTLEMENT_RADIUS[type]) type = 'town';
+        const { x, y } = project(lon, lat);
+        const px = Math.round(x), py = Math.round(y);
+        if (px < 0 || py < 0 || px >= SIZE || py >= SIZE) { skipped++; return; }
+
+        if (overwrite){
+          const pixel = drawCtx.getImageData(px, py, 1, 1).data;
+          if (pixel[3] > 0){
+            const existingId = colorToId(pixel[0], pixel[1], pixel[2]);
+            if (provinces[existingId]){
+              provinces[existingId].name = name;
+              provinces[existingId].type = type;
+              renamed++;
+              return;
+            }
+          }
+        }
+
+        const id = nextId;
+        const color = idToColor(id);
+        const r = SETTLEMENT_RADIUS[type];
+        drawCtx.fillStyle = rgbCss(color);
+        drawCtx.beginPath();
+        drawCtx.arc(px, py, r, 0, Math.PI * 2);
+        drawCtx.fill();
+        provinces[id] = { name, owner, type, color };
+        nextId++;
+        created++;
+      });
+
+      updateNextIdPreview();
+      refreshProvinceList();
+      statusEl.textContent = `Готово: ${created} нових позначок, ${renamed} перейменовано, ${skipped} поза межами карти.`;
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  });
+
   // ---------------- VISIBILITY ----------------
   function applyBrightMode(){
     drawCanvas.classList.toggle('bright', document.getElementById('brightMode').checked);
@@ -1517,6 +1730,8 @@
   setCanvasSize(4096);
   refreshOwnerSelects();
   refreshTypeSelects();
+  wireTypeHint('typeSelect', 'typeSelectHint');
+  wireTypeHint('infoType', 'infoTypeHint');
   updateNextIdPreview();
   refreshProvinceList();
   refCanvas.style.opacity = 0.55;
