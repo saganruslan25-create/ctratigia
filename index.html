@@ -261,17 +261,18 @@
       <h2>Авто-розбиття на провінції</h2>
       <div class="row">
         <div class="col" style="flex:1">
-          <label class="field-label">Розмір провінцій: <span id="provSizeLabel">90</span>px</label>
-          <input type="range" id="provSize" min="10" max="400" value="90">
+          <label class="field-label">Розмір провінцій: <span id="provSizeLabel">15</span>px</label>
+          <input type="range" id="provSize" min="10" max="400" value="15">
         </div>
       </div>
       <div class="row">
         <div class="col" style="flex:1">
-          <label class="field-label">Хаотичність форми: <span id="provIrregularityLabel">45</span>%</label>
-          <input type="range" id="provIrregularity" min="0" max="100" value="45">
+          <label class="field-label">Хаотичність форми: <span id="provIrregularityLabel">80</span>%</label>
+          <input type="range" id="provIrregularity" min="0" max="100" value="80">
         </div>
       </div>
       <div class="hint">Спочатку обведіть контур області інструментом «Кордон» (замкнена лінія навколо країни/регіону з фото), потім оберіть «Розбити на провінції» і клікніть всередині контуру. Менший розмір / вища хаотичність = більше дрібних нерівних провінцій, як у HOI4. Владелець і назва-префікс беруться з полів нижче.</div>
+      <div class="hint" style="color:var(--accent);">Зафіксовані значення проєкту: 15px / 80% хаотичності. Не змінюйте ці повзунки для нових автогенерацій — інакше нові провінції матимуть інший «зерновий» масштаб, ніж уже згенеровані 32 827 провінцій у start_data.json.</div>
       <div class="row" style="margin-top:8px;">
         <button class="wide danger small" id="btnUndoAutogen" disabled>Скасувати останню генерацію</button>
       </div>
@@ -376,6 +377,36 @@
       <h2>Імпорт міст/сіл (точки → провінції)</h2>
       <label class="field-label">GeoJSON з точками (Point), властивості: name, type</label>
       <input type="file" id="importSettlements" accept=".json,.geojson,application/geo+json">
+
+      <div class="hint" style="margin-top:8px; color:var(--accent);">У багатьох джерелах (як-от «Населені_Пункти_країни.geojson») переважна більшість сіл мають population = 0 (дані просто не внесені), а не «майже без людей». Без фільтра нижче вони всі імпортуються з однаковим fallback-населенням і засмічують карту суцільним килимом. Фільтр і ліміт нижче саме проти цього.</div>
+
+      <div class="row" style="margin-top:8px;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
+          <input type="checkbox" id="settImportMetropolis" checked style="width:auto;"> Метрополії
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
+          <input type="checkbox" id="settImportCity" checked style="width:auto;"> Міста
+        </label>
+      </div>
+      <div class="row">
+        <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
+          <input type="checkbox" id="settImportTown" checked style="width:auto;"> Містечка
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
+          <input type="checkbox" id="settImportVillage" checked style="width:auto;"> Села
+        </label>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <div class="col" style="flex:1">
+          <label class="field-label">Мін. населення для сіл (0/невідоме — відсіюється)</label>
+          <input type="number" id="settMinVillagePop" value="150" min="0" step="10">
+        </div>
+        <div class="col" style="flex:1">
+          <label class="field-label">Ліміт сіл (найбільші за населенням, 0 = без ліміту)</label>
+          <input type="number" id="settMaxVillages" value="3000" min="0" step="100">
+        </div>
+      </div>
+      <div class="hint" style="margin-top:0;">Село з population = 0 або нижче за поріг НЕ імпортується взагалі (жодної провінції під нього не малюється). Якщо після фільтра сіл лишається більше за ліміт — беруться N найбільших за населенням, решта відсіюється. Містечка/міста/метрополії завжди мають реальне населення в цьому наборі даних, тому їх фільтр не займає.</div>
       <div class="row" style="margin-top:8px;">
         <div class="col">
           <label class="field-label">minLon</label>
@@ -411,8 +442,8 @@
       </div>
       <div class="row" style="margin-top:8px;">
         <div class="col" style="flex:1">
-          <label class="field-label">Мін. відстань між населеними пунктами: <span id="settSpacingLabel">22</span>px</label>
-          <input type="range" id="settSpacing" min="0" max="80" value="22">
+          <label class="field-label">Мін. відстань між населеними пунктами: <span id="settSpacingLabel">55</span>px</label>
+          <input type="range" id="settSpacing" min="0" max="150" value="55">
         </div>
       </div>
       <div class="hint" style="margin-top:0;">Якщо два пункти з файлу лягають ближче — молодший (менший/менш людний) пропускається. Це і дає «один населений пункт на провінцію» та рівномірний розподіл замість купи підписів впритул. 0 = вимкнути перевірку.</div>
@@ -431,6 +462,36 @@
       <div class="hint" style="margin-top:0;">Радіус «плями» міста рахується від населення (властивість <code>population</code> у GeoJSON). Метрополія на кілька мільйонів займе десятки сусідніх провінцій навколо точки; село — завжди рівно одну.</div>
       <div class="hint">Кожна точка стане окремою провінцією з відповідним типом (metropolis/city/town/village) і назвою, або перейменує provincію під собою, якщо увімкнено опцію вище. Власник береться з поля «Власник» вище.</div>
       <div class="hint" id="settStatus"></div>
+    </div>
+
+    <!-- OCCUPIED TERRITORY (owner tagging by polygon overlap) -->
+    <div class="section">
+      <h2>Окуповані території (deepstatemap)</h2>
+      <label class="field-label">GeoJSON з полігоном лінії фронту (Polygon/MultiPolygon)</label>
+      <input type="file" id="importOccupied" accept=".json,.geojson,application/geo+json">
+      <div class="row" style="margin-top:8px;">
+        <div class="col" style="flex:1">
+          <label class="field-label">Власник для окупованих провінцій</label>
+          <input type="text" id="occupiedOwnerInput" value="Росія">
+        </div>
+      </div>
+      <div class="row">
+        <div class="col" style="flex:1">
+          <label class="field-label">Поріг покриття провінції: <span id="occupiedThresholdLabel">50</span>%</label>
+          <input type="range" id="occupiedThreshold" min="1" max="100" value="50">
+        </div>
+      </div>
+      <div class="row">
+        <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
+          <input type="checkbox" id="occupiedKeepAspect" checked style="width:auto;">
+          Проєктувати за тим самим bbox і пропорціями, що й у розділі «Імпорт міст/сіл» вище
+        </label>
+      </div>
+      <div class="hint" style="margin-top:0;">Використовує ті самі поля minLon/maxLon/minLat/maxLat з розділу «Імпорт міст/сіл» вище — переконайтеся, що вони відповідають bbox, яким уже імпортовано кордони й населені пункти цієї карти. Кожна вже намальована провінція, чия площа перекривається полігоном окупації на ≥ вказаний поріг, отримає власника, вказаного вище (типово «Росія»). Провінції, що НЕ існують на полотні (порожній фон), пропускаються — спочатку має бути згенерована базова сітка провінцій і населені пункти.</div>
+      <div class="row" style="margin-top:8px;">
+        <button class="wide primary" id="btnMarkOccupied">Позначити окуповані провінції</button>
+      </div>
+      <div class="hint" id="occupiedStatus"></div>
     </div>
 
     <!-- IMPORT (continue previous work) -->
@@ -797,6 +858,9 @@
   });
   document.getElementById('settScale').addEventListener('input', (e) => {
     document.getElementById('settScaleLabel').textContent = e.target.value;
+  });
+  document.getElementById('occupiedThreshold').addEventListener('input', (e) => {
+    document.getElementById('occupiedThresholdLabel').textContent = e.target.value;
   });
 
   // ---------------- CANVAS COORD MAPPING ----------------
@@ -1749,7 +1813,15 @@
 
       // ---- prepare + project + sort by significance (great cities first) ----
       const owner = document.getElementById('ownerSelect').value;
-      let skippedBounds = 0;
+      const importFlags = {
+        metropolis: document.getElementById('settImportMetropolis').checked,
+        city: document.getElementById('settImportCity').checked,
+        town: document.getElementById('settImportTown').checked,
+        village: document.getElementById('settImportVillage').checked
+      };
+      const minVillagePop = parseFloat(document.getElementById('settMinVillagePop').value) || 0;
+      const maxVillages = parseInt(document.getElementById('settMaxVillages').value, 10) || 0;
+      let skippedBounds = 0, skippedType = 0, skippedLowPop = 0, skippedVillageCap = 0;
       const items = [];
       features.forEach((f) => {
         const [lon, lat] = f.geometry.coordinates;
@@ -1757,7 +1829,12 @@
         const name = props.name || props.NAME || props.Name || 'Населений пункт';
         let type = (props.type || props.place || 'town').toLowerCase();
         if (!SETTLEMENT_RADIUS[type]) type = 'town';
+        if (!importFlags[type]) { skippedType++; return; }
         const population = Number(props.population) || 0;
+        // Villages with 0/unknown population, or below the threshold, are pure
+        // map noise (most "0 population" entries just have no data recorded,
+        // not an actually-empty settlement) — skip them entirely.
+        if (type === 'village' && population < minVillagePop) { skippedLowPop++; return; }
         const { x, y } = project(lon, lat);
         const px = Math.round(x), py = Math.round(y);
         if (px < 0 || py < 0 || px >= SIZE || py >= SIZE) { skippedBounds++; return; }
@@ -1765,6 +1842,21 @@
         items.push({ name, type, population, px, py, weight });
       });
       items.sort((a, b) => (b.weight - a.weight) || (SETTLEMENT_TIER_RANK[b.type] - SETTLEMENT_TIER_RANK[a.type]));
+
+      if (maxVillages > 0){
+        let villageCount = 0;
+        const filtered = [];
+        for (let i = 0; i < items.length; i++){
+          const it = items[i];
+          if (it.type === 'village'){
+            villageCount++;
+            if (villageCount > maxVillages){ skippedVillageCap++; continue; }
+          }
+          filtered.push(it);
+        }
+        items.length = 0;
+        items.push(...filtered);
+      }
 
       pushHistory();
 
@@ -1836,10 +1928,133 @@
 
       updateNextIdPreview();
       refreshProvinceList();
-      statusEl.textContent = `Готово: ${renamed} перейменовано (+${floodedExtra} сусідніх провінцій у "плямах" великих міст), ${created} нових, ${skippedSpacing} пропущено (занадто близько до більшого сусіда), ${skippedClaimed} пропущено (провінція вже зайнята), ${skippedBounds} поза межами карти.`;
+      statusEl.textContent = `Готово: ${renamed} перейменовано (+${floodedExtra} сусідніх провінцій у "плямах" великих міст), ${created} нових. Пропущено: ${skippedType} (вимкнений тип), ${skippedLowPop} сіл (нижче порогу населення), ${skippedVillageCap} сіл (понад ліміт), ${skippedSpacing} (занадто близько до більшого сусіда), ${skippedClaimed} (провінція вже зайнята), ${skippedBounds} (поза межами карти).`;
       e.target.value = '';
     };
     reader.readAsText(file);
+  });
+
+  // ---------------- OCCUPIED TERRITORY (owner tagging) ----------------
+  let occupiedGeojson = null;
+  document.getElementById('importOccupied').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('occupiedStatus');
+    statusEl.textContent = 'Читання файлу…';
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        occupiedGeojson = JSON.parse(reader.result);
+        statusEl.textContent = 'Файл завантажено. Натисніть «Позначити окуповані провінції».';
+      } catch(err){
+        occupiedGeojson = null;
+        statusEl.textContent = 'Помилка читання GeoJSON: ' + err.message;
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById('btnMarkOccupied').addEventListener('click', () => {
+    const statusEl = document.getElementById('occupiedStatus');
+    if (!occupiedGeojson){
+      statusEl.textContent = 'Спочатку виберіть GeoJSON-файл з полігоном окупації вище.';
+      return;
+    }
+    if (Object.keys(provinces).length === 0){
+      statusEl.textContent = 'На полотні ще немає жодної провінції — спочатку згенеруйте базову сітку/населені пункти.';
+      return;
+    }
+
+    let features = [];
+    if (occupiedGeojson.type === 'FeatureCollection') features = occupiedGeojson.features || [];
+    else if (occupiedGeojson.type === 'Feature') features = [occupiedGeojson];
+    else if (occupiedGeojson.type === 'Polygon' || occupiedGeojson.type === 'MultiPolygon') features = [{ type:'Feature', properties:{}, geometry: occupiedGeojson }];
+    features = features.filter(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'));
+    if (!features.length){
+      statusEl.textContent = 'У файлі не знайдено геометрій Polygon/MultiPolygon.';
+      return;
+    }
+
+    const ownerName = (document.getElementById('occupiedOwnerInput').value || 'Росія').trim() || 'Росія';
+    const threshold = (parseFloat(document.getElementById('occupiedThreshold').value) || 50) / 100;
+    const keepAspect = document.getElementById('occupiedKeepAspect').checked;
+
+    // Reuse the same bbox fields as the settlements importer so all layers
+    // (borders, settlements, occupied front line) line up on one projection.
+    const minLon = parseFloat(document.getElementById('settMinLon').value);
+    const maxLon = parseFloat(document.getElementById('settMaxLon').value);
+    const minLat = parseFloat(document.getElementById('settMinLat').value);
+    const maxLat = parseFloat(document.getElementById('settMaxLat').value);
+
+    let project;
+    if (keepAspect){
+      const centerLat = (minLat + maxLat) / 2;
+      const lonCorrection = Math.cos(centerLat * Math.PI / 180);
+      const lonSpan = Math.max(1e-9, (maxLon - minLon) * lonCorrection);
+      const latSpan = Math.max(1e-9, (maxLat - minLat));
+      const span = Math.max(lonSpan, latSpan);
+      const scale = SIZE / span;
+      const offX = (SIZE - lonSpan * scale) / 2;
+      const offY = (SIZE - latSpan * scale) / 2;
+      project = (lon, lat) => ({
+        x: (lon - minLon) * lonCorrection * scale + offX,
+        y: (maxLat - lat) * scale + offY
+      });
+    } else {
+      const scaleX = SIZE / Math.max(1e-9, (maxLon - minLon));
+      const scaleY = SIZE / Math.max(1e-9, (maxLat - minLat));
+      project = (lon, lat) => ({
+        x: (lon - minLon) * scaleX,
+        y: (maxLat - lat) * scaleY
+      });
+    }
+
+    statusEl.textContent = 'Обробка…';
+
+    setTimeout(() => {
+      // Rasterize the occupied polygon(s) onto a scratch canvas the size of the map.
+      const maskCanvas = document.createElement('canvas');
+      maskCanvas.width = SIZE; maskCanvas.height = SIZE;
+      const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+      maskCtx.fillStyle = '#fff';
+      features.forEach(f => {
+        const rast = buildFeaturePath(f.geometry, project);
+        if (!rast) return;
+        maskCtx.fill(rast.path, 'evenodd');
+      });
+
+      pushHistory();
+
+      const maskData = maskCtx.getImageData(0, 0, SIZE, SIZE).data;
+      const provData = drawCtx.getImageData(0, 0, SIZE, SIZE).data;
+
+      const total = new Map();
+      const occupied = new Map();
+      for (let i = 0; i < provData.length; i += 4){
+        if (provData[i+3] === 0) continue;
+        const id = colorToId(provData[i], provData[i+1], provData[i+2]);
+        if (!provinces[id]) continue;
+        total.set(id, (total.get(id) || 0) + 1);
+        if (maskData[i+3] > 0) occupied.set(id, (occupied.get(id) || 0) + 1);
+      }
+
+      if (!owners.includes(ownerName)){
+        owners.push(ownerName);
+      }
+
+      let marked = 0;
+      total.forEach((tot, id) => {
+        const occ = occupied.get(id) || 0;
+        if (tot > 0 && (occ / tot) >= threshold){
+          provinces[id].owner = ownerName;
+          marked++;
+        }
+      });
+
+      refreshOwnerSelects();
+      refreshProvinceList();
+      statusEl.textContent = `Готово: ${marked} із ${total.size} існуючих провінцій позначено власником «${ownerName}» (поріг покриття ${Math.round(threshold*100)}%).`;
+    }, 10);
   });
 
   // ---------------- VISIBILITY ----------------
