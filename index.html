@@ -409,6 +409,26 @@
           Якщо точка потрапляє в існуючу провінцію — перейменувати її (замість малювання нової)
         </label>
       </div>
+      <div class="row" style="margin-top:8px;">
+        <div class="col" style="flex:1">
+          <label class="field-label">Мін. відстань між населеними пунктами: <span id="settSpacingLabel">22</span>px</label>
+          <input type="range" id="settSpacing" min="0" max="80" value="22">
+        </div>
+      </div>
+      <div class="hint" style="margin-top:0;">Якщо два пункти з файлу лягають ближче — молодший (менший/менш людний) пропускається. Це і дає «один населений пункт на провінцію» та рівномірний розподіл замість купи підписів впритул. 0 = вимкнути перевірку.</div>
+      <div class="row" style="margin-top:8px;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
+          <input type="checkbox" id="settRealScale" checked style="width:auto;">
+          Великі міста/метрополії займають кілька провінцій (реальний масштаб)
+        </label>
+      </div>
+      <div class="row">
+        <div class="col" style="flex:1">
+          <label class="field-label">Множник розміру великих міст: <span id="settScaleLabel">1.0</span>×</label>
+          <input type="range" id="settScale" min="0.2" max="3" step="0.1" value="1.0">
+        </div>
+      </div>
+      <div class="hint" style="margin-top:0;">Радіус «плями» міста рахується від населення (властивість <code>population</code> у GeoJSON). Метрополія на кілька мільйонів займе десятки сусідніх провінцій навколо точки; село — завжди рівно одну.</div>
       <div class="hint">Кожна точка стане окремою провінцією з відповідним типом (metropolis/city/town/village) і назвою, або перейменує provincію під собою, якщо увімкнено опцію вище. Власник береться з поля «Власник» вище.</div>
       <div class="hint" id="settStatus"></div>
     </div>
@@ -770,6 +790,13 @@
 
   document.getElementById('brushSize').addEventListener('input', (e) => {
     document.getElementById('brushSizeLabel').textContent = e.target.value;
+  });
+
+  document.getElementById('settSpacing').addEventListener('input', (e) => {
+    document.getElementById('settSpacingLabel').textContent = e.target.value;
+  });
+  document.getElementById('settScale').addEventListener('input', (e) => {
+    document.getElementById('settScaleLabel').textContent = e.target.value;
   });
 
   // ---------------- CANVAS COORD MAPPING ----------------
@@ -1617,6 +1644,50 @@
 
   // ---------------- SETTLEMENTS (POINT) IMPORT ----------------
   const SETTLEMENT_RADIUS = { metropolis: 14, city: 9, town: 5, village: 3 };
+  const SETTLEMENT_FALLBACK_POP = { metropolis: 500000, city: 30000, town: 5000, village: 300 };
+  const SETTLEMENT_TIER_RANK = { metropolis: 3, city: 2, town: 1, village: 0 };
+
+  // Радіус "плями" (у px полотна), яку займе великий населений пункт навколо
+  // своєї точки — рахується від населення, а не фіксований per-тип, тож
+  // велике місто у 2 млн і місто у 25 тис. в одному tier виглядають по-різному.
+  function floodRadiusPx(type, population, scaleMul){
+    if (type === 'village') return 0;
+    const floor = { town: 4, city: 9, metropolis: 20 }[type] || 0;
+    const pop = population || SETTLEMENT_FALLBACK_POP[type];
+    const K = 0.045;
+    const HARD_CAP = 140;
+    const r = Math.min(HARD_CAP, Math.max(floor, K * Math.sqrt(pop)));
+    return r * scaleMul;
+  }
+
+  // Читає коло радіусом radius навколо (px,py) з полотна і повертає ID усіх
+  // вже намальованих провінцій під ним (крім тих, що вже "зайняті" claimedSet
+  // у цьому імпорті — щоб два різні населені пункти не ділили одну провінцію).
+  function floodFindProvinces(px, py, radius, claimedSet){
+    const r = Math.max(1, Math.round(radius));
+    const bx0 = Math.max(0, px - r), by0 = Math.max(0, py - r);
+    const bx1 = Math.min(SIZE - 1, px + r), by1 = Math.min(SIZE - 1, py + r);
+    const bw = bx1 - bx0 + 1, bh = by1 - by0 + 1;
+    if (bw <= 0 || bh <= 0) return [];
+    const region = drawCtx.getImageData(bx0, by0, bw, bh);
+    const data = region.data;
+    const r2 = r * r;
+    const found = new Set();
+    for (let yy = 0; yy < bh; yy++){
+      const dy = (by0 + yy) - py;
+      if (dy*dy > r2) continue;
+      const rowOff = yy * bw;
+      for (let xx = 0; xx < bw; xx++){
+        const dx = (bx0 + xx) - px;
+        if (dx*dx + dy*dy > r2) continue;
+        const i = (rowOff + xx) * 4;
+        if (data[i+3] === 0) continue;
+        const id = colorToId(data[i], data[i+1], data[i+2]);
+        if (provinces[id] && !claimedSet.has(id)) found.add(id);
+      }
+    }
+    return Array.from(found);
+  }
 
   document.getElementById('importSettlements').addEventListener('change', (e) => {
     const file = e.target.files[0];
@@ -1649,6 +1720,9 @@
       const maxLat = parseFloat(document.getElementById('settMaxLat').value);
       const keepAspect = document.getElementById('settKeepAspect').checked;
       const overwrite = document.getElementById('settOverwrite').checked;
+      const spacingPx = parseFloat(document.getElementById('settSpacing').value) || 0;
+      const realScale = document.getElementById('settRealScale').checked;
+      const scaleMul = parseFloat(document.getElementById('settScale').value) || 1;
 
       let project;
       if (keepAspect){
@@ -1673,28 +1747,74 @@
         });
       }
 
-      pushHistory();
+      // ---- prepare + project + sort by significance (great cities first) ----
       const owner = document.getElementById('ownerSelect').value;
-      let created = 0, renamed = 0, skipped = 0;
-
+      let skippedBounds = 0;
+      const items = [];
       features.forEach((f) => {
         const [lon, lat] = f.geometry.coordinates;
         const props = f.properties || {};
         const name = props.name || props.NAME || props.Name || 'Населений пункт';
         let type = (props.type || props.place || 'town').toLowerCase();
         if (!SETTLEMENT_RADIUS[type]) type = 'town';
+        const population = Number(props.population) || 0;
         const { x, y } = project(lon, lat);
         const px = Math.round(x), py = Math.round(y);
-        if (px < 0 || py < 0 || px >= SIZE || py >= SIZE) { skipped++; return; }
+        if (px < 0 || py < 0 || px >= SIZE || py >= SIZE) { skippedBounds++; return; }
+        const weight = population || SETTLEMENT_FALLBACK_POP[type];
+        items.push({ name, type, population, px, py, weight });
+      });
+      items.sort((a, b) => (b.weight - a.weight) || (SETTLEMENT_TIER_RANK[b.type] - SETTLEMENT_TIER_RANK[a.type]));
+
+      pushHistory();
+
+      const claimedProvinces = new Set();
+      const placedPoints = []; // {x,y,radius} for spacing checks
+      let renamed = 0, created = 0, floodedExtra = 0, skippedSpacing = 0, skippedClaimed = 0;
+
+      items.forEach((it) => {
+        const { name, type, population, px, py } = it;
+
+        if (spacingPx > 0){
+          for (let i = 0; i < placedPoints.length; i++){
+            const p = placedPoints[i];
+            const need = spacingPx + p.radius;
+            const dx = px - p.x, dy = py - p.y;
+            if (dx*dx + dy*dy < need*need){ skippedSpacing++; return; }
+          }
+        }
+
+        const fr = realScale ? floodRadiusPx(type, population, scaleMul) : 0;
+
+        if (fr > 0){
+          const ids = floodFindProvinces(px, py, fr, claimedProvinces);
+          if (ids.length){
+            ids.forEach(id => {
+              provinces[id].name = name;
+              provinces[id].type = type;
+              claimedProvinces.add(id);
+            });
+            renamed++;
+            floodedExtra += Math.max(0, ids.length - 1);
+            placedPoints.push({ x: px, y: py, radius: fr });
+            return;
+          }
+          // нічого не знайшли під плямою (порожньо/вода) — намалюємо нову провінцію-мітку нижче
+        }
 
         if (overwrite){
           const pixel = drawCtx.getImageData(px, py, 1, 1).data;
           if (pixel[3] > 0){
             const existingId = colorToId(pixel[0], pixel[1], pixel[2]);
-            if (provinces[existingId]){
+            if (provinces[existingId] && !claimedProvinces.has(existingId)){
               provinces[existingId].name = name;
               provinces[existingId].type = type;
+              claimedProvinces.add(existingId);
               renamed++;
+              placedPoints.push({ x: px, y: py, radius: Math.max(fr, SETTLEMENT_RADIUS[type]) });
+              return;
+            } else if (provinces[existingId] && claimedProvinces.has(existingId)){
+              skippedClaimed++;
               return;
             }
           }
@@ -1702,19 +1822,21 @@
 
         const id = nextId;
         const color = idToColor(id);
-        const r = SETTLEMENT_RADIUS[type];
+        const r = Math.max(fr, SETTLEMENT_RADIUS[type]);
         drawCtx.fillStyle = rgbCss(color);
         drawCtx.beginPath();
         drawCtx.arc(px, py, r, 0, Math.PI * 2);
         drawCtx.fill();
         provinces[id] = { name, owner, type, color };
+        claimedProvinces.add(id);
         nextId++;
         created++;
+        placedPoints.push({ x: px, y: py, radius: r });
       });
 
       updateNextIdPreview();
       refreshProvinceList();
-      statusEl.textContent = `Готово: ${created} нових позначок, ${renamed} перейменовано, ${skipped} поза межами карти.`;
+      statusEl.textContent = `Готово: ${renamed} перейменовано (+${floodedExtra} сусідніх провінцій у "плямах" великих міст), ${created} нових, ${skippedSpacing} пропущено (занадто близько до більшого сусіда), ${skippedClaimed} пропущено (провінція вже зайнята), ${skippedBounds} поза межами карти.`;
       e.target.value = '';
     };
     reader.readAsText(file);
